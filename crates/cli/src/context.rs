@@ -12,6 +12,7 @@ use tree_sitter_loader::Loader;
 pub struct ContextOptions {
     pub quiet: bool,
     pub old_path: Option<std::path::PathBuf>,
+    pub symbols: bool,
 }
 
 pub fn run(loader: &mut Loader, path: &Path, opts: &ContextOptions) -> Result<()> {
@@ -22,12 +23,11 @@ pub fn run(loader: &mut Loader, path: &Path, opts: &ContextOptions) -> Result<()
     }
 }
 
-fn run_chunks(loader: &mut Loader, path: &Path, _opts: &ContextOptions) -> Result<()> {
+fn run_chunks(loader: &mut Loader, path: &Path, opts: &ContextOptions) -> Result<()> {
     let source = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
 
-    let language = loader
+    let (language, language_config) = loader
         .language_configuration_for_file_name(path)?
-        .map(|(lang, _)| lang)
         .ok_or_else(|| anyhow!("no language found for {}", path.display()))?;
 
     let mut parser = Parser::new();
@@ -43,6 +43,26 @@ fn run_chunks(loader: &mut Loader, path: &Path, _opts: &ContextOptions) -> Resul
         tree_sitter_context::chunk::chunks_for_tree(&tree, path, &source, &Default::default());
     for chunk in chunks {
         output.push_chunk(chunk);
+    }
+
+    if opts.symbols {
+        if let Some(tags_config) = language_config.tags_config(language)? {
+            let symbol_opts = tree_sitter_context::symbols::SymbolOptions::default();
+            let symbols = tree_sitter_context::symbols::symbols_for_tree(
+                &tree,
+                path,
+                &source,
+                tags_config,
+                &symbol_opts,
+            );
+            for symbol in symbols {
+                output.symbols.push(symbol);
+            }
+        } else {
+            output.push_diagnostic(tree_sitter_context::schema::Diagnostic::warn(
+                "no tags configuration found for this language; symbols omitted",
+            ));
+        }
     }
 
     if output.meta.total_chunks == 0 {

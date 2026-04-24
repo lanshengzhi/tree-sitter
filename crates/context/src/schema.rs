@@ -135,10 +135,25 @@ pub struct OutputMeta {
     pub total_estimated_tokens: usize,
 }
 
+/// A symbol (definition or reference) extracted from a source file.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SymbolRecord {
+    pub name: String,
+    pub syntax_type: String,
+    pub byte_range: ByteRange,
+    pub line_range: ByteRange,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<String>,
+    pub is_definition: bool,
+    pub path: PathBuf,
+    pub confidence: Confidence,
+}
+
 /// Canonical output for the context engine.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ContextOutput {
     pub chunks: Vec<ChunkRecord>,
+    pub symbols: Vec<SymbolRecord>,
     pub diagnostics: Vec<Diagnostic>,
     pub meta: OutputMeta,
 }
@@ -164,6 +179,7 @@ impl ContextOutput {
     pub fn new(schema_version: impl Into<String>) -> Self {
         Self {
             chunks: Vec::new(),
+            symbols: Vec::new(),
             diagnostics: Vec::new(),
             meta: OutputMeta {
                 schema_version: schema_version.into(),
