@@ -1968,7 +1968,7 @@ dependencies = [
  "regex",
  "serde_json",
  "streaming-iterator",
- "tree-sitter-language",
+ "tree-sitter-language 0.1.8",
  "wasmtime-c-api-impl",
 ]
 
@@ -2041,6 +2041,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tree-sitter",
+ "tree-sitter-rust",
 ]
 
 [[package]]
@@ -2076,6 +2077,12 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-language"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4013970217383f67b18aef68f6fb2e8d409bc5755227092d32efb0422ba24b8"
+
+[[package]]
+name = "tree-sitter-language"
 version = "0.1.8"
 
 [[package]]
@@ -2096,6 +2103,16 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-highlight",
  "tree-sitter-tags",
+]
+
+[[package]]
+name = "tree-sitter-rust"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "439e577dbe07423ec2582ac62c7531120dbfccfa6e5f92406f93dd271a120e45"
+dependencies = [
+ "cc",
+ "tree-sitter-language 0.1.5",
 ]
 
 [[package]]
