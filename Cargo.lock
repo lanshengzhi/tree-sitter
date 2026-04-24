@@ -2008,6 +2008,7 @@ dependencies = [
  "tiny_http",
  "tree-sitter",
  "tree-sitter-config",
+ "tree-sitter-context",
  "tree-sitter-generate",
  "tree-sitter-highlight",
  "tree-sitter-loader",
