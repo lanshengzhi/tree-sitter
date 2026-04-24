@@ -3,6 +3,7 @@ use std::path::Path;
 
 use tree_sitter::{Node, Tree};
 
+use crate::identity::StableId;
 use crate::schema::{ByteRange, ChunkId, ChunkRecord, Confidence};
 
 /// Options for producing semantic chunks from a syntax tree.
@@ -77,8 +78,17 @@ impl<'a> Chunker<'a> {
             anchor_byte: byte_range.start,
         };
 
+        let stable_id = StableId::compute(
+            self.path,
+            node.kind(),
+            name.as_deref(),
+            self.source,
+            &byte_range,
+        );
+
         self.chunks.push(ChunkRecord {
-            id,
+            id: id.clone(),
+            stable_id,
             kind: node.kind().to_string(),
             name,
             byte_range,
@@ -86,9 +96,7 @@ impl<'a> Chunker<'a> {
             confidence: Confidence::Exact,
         });
 
-        // Return the id of the chunk we just pushed.
-        let idx = self.chunks.len() - 1;
-        self.chunks[idx].id.clone()
+        id
     }
 }
 

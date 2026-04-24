@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::identity::StableId;
+
 /// Confidence level for a chunk or invalidation result.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -112,9 +114,10 @@ pub struct ChunkId {
 }
 
 /// A single chunk of code context, ready for serialization or bundling.
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ChunkRecord {
     pub id: ChunkId,
+    pub stable_id: StableId,
     pub kind: String,
     pub name: Option<String>,
     pub byte_range: ByteRange,
