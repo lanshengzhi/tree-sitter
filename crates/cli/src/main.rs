@@ -67,6 +67,8 @@ enum Commands {
     Highlight(Highlight),
     /// Generate a list of tags
     Tags(Tags),
+    /// Extract code context from a source file
+    Context(ContextCmd),
     /// Start local playground for a parser in the browser
     Playground(Playground),
     /// Print info about all known language parsers
@@ -579,6 +581,26 @@ struct Tags {
     /// Force rebuild the parser
     #[arg(short, long)]
     pub rebuild: bool,
+}
+
+#[derive(Args)]
+#[command(alias = "ctx")]
+struct ContextCmd {
+    /// The source file to extract context from
+    #[arg(index = 1)]
+    pub path: PathBuf,
+    /// The path to the tree-sitter grammar directory
+    #[arg(long, short = 'p')]
+    pub grammar_path: Option<PathBuf>,
+    /// The path to an alternative config.json file
+    #[arg(long)]
+    pub config_path: Option<PathBuf>,
+    /// Force rebuild the parser
+    #[arg(short, long)]
+    pub rebuild: bool,
+    /// Suppress main output
+    #[arg(long, short)]
+    pub quiet: bool,
 }
 
 #[derive(Args)]
@@ -1960,6 +1982,20 @@ impl Tags {
     }
 }
 
+impl ContextCmd {
+    fn run(self, mut loader: loader::Loader, _current_dir: &Path) -> Result<()> {
+        let config = Config::load(self.config_path)?;
+        let loader_config = config.get()?;
+        loader.find_all_languages(&loader_config)?;
+        loader.force_rebuild(self.rebuild || self.grammar_path.is_some());
+
+        let options = tree_sitter_cli::context::ContextOptions { quiet: self.quiet };
+        tree_sitter_cli::context::run(&mut loader, &self.path, &options)?;
+
+        Ok(())
+    }
+}
+
 impl Playground {
     fn run(self, current_dir: &Path) -> Result<()> {
         let grammar_path = self.grammar_path.as_deref().map_or(current_dir, Path::new);
@@ -2074,6 +2110,7 @@ fn run() -> Result<()> {
         | Commands::Query(Query { grammar_path, .. })
         | Commands::Highlight(Highlight { grammar_path, .. })
         | Commands::Tags(Tags { grammar_path, .. })
+        | Commands::Context(ContextCmd { grammar_path, .. })
         | Commands::Playground(Playground { grammar_path, .. }) => grammar_path,
         Commands::Build(_)
         | Commands::Generate(_)
@@ -2098,6 +2135,7 @@ fn run() -> Result<()> {
         Commands::Query(query_options) => query_options.run(loader, &current_dir)?,
         Commands::Highlight(highlight_options) => highlight_options.run(loader, &current_dir)?,
         Commands::Tags(tags_options) => tags_options.run(loader, &current_dir)?,
+        Commands::Context(context_options) => context_options.run(loader, &current_dir)?,
         Commands::Playground(playground_options) => playground_options.run(&current_dir)?,
         Commands::DumpLanguages(dump_options) => dump_options.run(loader)?,
         Commands::Complete(complete_options) => complete_options.run(&mut cli),

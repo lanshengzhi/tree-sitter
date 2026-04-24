@@ -71,6 +71,7 @@ tree-sitter-config.workspace    = true
 tree-sitter-generate            = { workspace = true, features = ["load"] }
 tree-sitter-highlight.workspace = true
 tree-sitter-loader.workspace    = true
+tree-sitter-context.workspace   = true
 tree-sitter-tags.workspace      = true
 
 [dev-dependencies]
