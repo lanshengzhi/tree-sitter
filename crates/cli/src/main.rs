@@ -589,6 +589,9 @@ struct ContextCmd {
     /// The source file to extract context from
     #[arg(index = 1)]
     pub path: PathBuf,
+    /// Old snapshot for invalidation diff
+    #[arg(long)]
+    pub old: Option<PathBuf>,
     /// The path to the tree-sitter grammar directory
     #[arg(long, short = 'p')]
     pub grammar_path: Option<PathBuf>,
@@ -1989,7 +1992,10 @@ impl ContextCmd {
         loader.find_all_languages(&loader_config)?;
         loader.force_rebuild(self.rebuild || self.grammar_path.is_some());
 
-        let options = tree_sitter_cli::context::ContextOptions { quiet: self.quiet };
+        let options = tree_sitter_cli::context::ContextOptions {
+            quiet: self.quiet,
+            old_path: self.old,
+        };
         tree_sitter_cli::context::run(&mut loader, &self.path, &options)?;
 
         Ok(())
