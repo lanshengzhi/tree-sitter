@@ -143,6 +143,23 @@ pub struct ContextOutput {
     pub meta: OutputMeta,
 }
 
+/// Output from an invalidation pass (snapshot diff or edit stream).
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct InvalidationOutput {
+    /// Chunks that overlap a changed range.
+    pub affected: Vec<ChunkRecord>,
+    /// Chunks present in the new snapshot but not the old.
+    pub added: Vec<ChunkRecord>,
+    /// Chunks present in the old snapshot but not the new.
+    pub removed: Vec<ChunkRecord>,
+    /// Chunks that exist in both snapshots and do not overlap any changed range.
+    pub unchanged: Vec<ChunkRecord>,
+    /// Raw changed ranges detected by tree-sitter.
+    pub changed_ranges: Vec<ByteRange>,
+    pub diagnostics: Vec<Diagnostic>,
+    pub meta: OutputMeta,
+}
+
 impl ContextOutput {
     pub fn new(schema_version: impl Into<String>) -> Self {
         Self {
