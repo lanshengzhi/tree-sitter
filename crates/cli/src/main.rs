@@ -592,6 +592,9 @@ struct ContextCmd {
     /// Old snapshot for invalidation diff
     #[arg(long)]
     pub old: Option<PathBuf>,
+    /// Include symbols (definitions/references) using tags queries
+    #[arg(long)]
+    pub symbols: bool,
     /// The path to the tree-sitter grammar directory
     #[arg(long, short = 'p')]
     pub grammar_path: Option<PathBuf>,
@@ -1995,6 +1998,7 @@ impl ContextCmd {
         let options = tree_sitter_cli::context::ContextOptions {
             quiet: self.quiet,
             old_path: self.old,
+            symbols: self.symbols,
         };
         tree_sitter_cli::context::run(&mut loader, &self.path, &options)?;
 
