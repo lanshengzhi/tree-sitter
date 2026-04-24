@@ -2,12 +2,14 @@
 //! Tree-sitter syntax trees with stable identity, diagnostics, and
 //! incremental invalidation.
 
+pub mod bundle;
 pub mod chunk;
 pub mod identity;
 pub mod invalidation;
 pub mod schema;
 pub mod symbols;
 
+pub use bundle::{BundleOptions, BundleOutput, OmissionReason, bundle_chunks};
 pub use chunk::{ChunkOptions, chunks_for_tree};
 pub use identity::{StableId, match_chunks};
 pub use invalidation::{invalidate_edits, invalidate_snapshot};
