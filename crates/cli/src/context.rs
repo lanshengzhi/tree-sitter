@@ -13,6 +13,7 @@ pub struct ContextOptions {
     pub quiet: bool,
     pub old_path: Option<std::path::PathBuf>,
     pub symbols: bool,
+    pub budget: Option<usize>,
 }
 
 pub fn run(loader: &mut Loader, path: &Path, opts: &ContextOptions) -> Result<()> {

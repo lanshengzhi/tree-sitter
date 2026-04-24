@@ -595,6 +595,9 @@ struct ContextCmd {
     /// Include symbols (definitions/references) using tags queries
     #[arg(long)]
     pub symbols: bool,
+    /// Maximum token budget for the context bundle
+    #[arg(long, value_name = "TOKENS")]
+    pub budget: Option<usize>,
     /// The path to the tree-sitter grammar directory
     #[arg(long, short = 'p')]
     pub grammar_path: Option<PathBuf>,
@@ -1999,6 +2002,7 @@ impl ContextCmd {
             quiet: self.quiet,
             old_path: self.old,
             symbols: self.symbols,
+            budget: self.budget,
         };
         tree_sitter_cli::context::run(&mut loader, &self.path, &options)?;
 
