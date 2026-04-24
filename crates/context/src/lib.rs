@@ -12,5 +12,5 @@ pub use identity::{StableId, match_chunks};
 pub use invalidation::{invalidate_edits, invalidate_snapshot};
 pub use schema::{
     ByteRange, ChunkId, ChunkRecord, Confidence, ContextOutput, Diagnostic, DiagnosticLevel,
-    OutputMeta,
+    InvalidationOutput, OutputMeta,
 };
