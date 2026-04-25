@@ -1,7 +1,7 @@
 //! Smoke benchmark for tree-sitter-context.
 //!
 //! Run with:
-//!   cargo run -p tree-sitter-context --bin smoke_benchmark
+//!   `cargo run -p tree-sitter-context --bin smoke_benchmark`
 
 use std::{
     fs,
@@ -68,7 +68,7 @@ struct InvalidationRow {
 }
 
 impl BenchmarkReport {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             rows: Vec::new(),
             invalidation_rows: Vec::new(),
@@ -90,18 +90,21 @@ impl BenchmarkReport {
 
         let chunk_start = Instant::now();
         let options = ChunkOptions::default();
-        let chunks = chunks_for_tree(&tree, path, &source, &options);
+        let chunk_result = chunks_for_tree(&tree, path, &source, &options);
         let chunk_elapsed = chunk_start.elapsed().as_secs_f64() * 1000.0;
 
         let total_elapsed = parse_elapsed + chunk_elapsed;
-        let chunk_count = chunks.len();
-        let estimated_tokens: usize = chunks.iter().map(|c| c.estimated_tokens).sum();
+        let chunk_count = chunk_result.chunks.len();
+        let estimated_tokens: usize = chunk_result.chunks.iter().map(|c| c.estimated_tokens).sum();
 
         let output = {
             let mut out =
                 tree_sitter_context::schema::ContextOutput::new("0.1.0").with_source_path(path);
-            for chunk in chunks {
+            for chunk in chunk_result.chunks {
                 out.push_chunk(chunk);
+            }
+            for diagnostic in chunk_result.diagnostics {
+                out.push_diagnostic(diagnostic);
             }
             out
         };
@@ -155,17 +158,14 @@ impl BenchmarkReport {
     }
 
     fn to_markdown(&self) -> String {
-        let mut lines = Vec::new();
-        lines.push("# tree-sitter-context Smoke Benchmark".to_string());
-        lines.push(String::new());
-        lines.push("## Chunking".to_string());
-        lines.push(String::new());
-        lines.push(
+        let mut lines = vec![
+            "# tree-sitter-context Smoke Benchmark".to_string(),
+            String::new(),
+            "## Chunking".to_string(),
+            String::new(),
             "| Fixture | File Size | Parse (ms) | Chunk (ms) | Total (ms) | Chunks | Est. Tokens | JSON Size | Raw Size |".to_string(),
-        );
-        lines.push(
             "|---------|-----------|------------|------------|------------|--------|-------------|-----------|----------|".to_string(),
-        );
+        ];
 
         for row in &self.rows {
             lines.push(format!(

@@ -6,6 +6,8 @@ use tree_sitter::{Node, Tree};
 use crate::identity::StableId;
 use crate::schema::{ByteRange, ChunkId, ChunkRecord, Confidence};
 
+use crate::schema::Diagnostic;
+
 /// Options for producing semantic chunks from a syntax tree.
 #[derive(Clone, Debug)]
 pub struct ChunkOptions {
@@ -13,12 +15,24 @@ pub struct ChunkOptions {
     ///
     /// Milestone 5 records this value but does not split large syntax nodes yet.
     pub max_tokens: usize,
+    /// Maximum number of chunks to emit. Additional chunk boundaries are ignored.
+    pub max_chunks: usize,
 }
 
 impl Default for ChunkOptions {
     fn default() -> Self {
-        Self { max_tokens: 2_000 }
+        Self {
+            max_tokens: 2_000,
+            max_chunks: 1_000,
+        }
     }
+}
+
+/// Output from a chunking pass.
+#[derive(Clone, Debug)]
+pub struct ChunkOutput {
+    pub chunks: Vec<ChunkRecord>,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 /// Produce chunks for a parsed source file.
@@ -27,7 +41,7 @@ pub fn chunks_for_tree(
     path: impl AsRef<Path>,
     source: &[u8],
     options: &ChunkOptions,
-) -> Vec<ChunkRecord> {
+) -> ChunkOutput {
     let path = path.as_ref().to_path_buf();
     let mut chunker = Chunker {
         path: &path,
@@ -36,13 +50,28 @@ pub fn chunks_for_tree(
         options,
     };
 
-    chunker.visit(tree.root_node());
+    chunker.visit(tree.root_node(), 0, None);
+
+    let mut diagnostics = Vec::new();
 
     if chunker.chunks.is_empty() {
-        chunker.push_chunk(tree.root_node(), None);
+        chunker.push_chunk(tree.root_node(), 0, None);
+        diagnostics.push(Diagnostic::info(
+            "no recognized chunk boundaries found; falling back to entire file as single chunk",
+        ));
     }
 
-    chunker.chunks
+    if chunker.chunks.len() >= options.max_chunks {
+        diagnostics.push(Diagnostic::warn(format!(
+            "chunk limit ({}) reached; some boundaries were omitted",
+            options.max_chunks,
+        )));
+    }
+
+    ChunkOutput {
+        chunks: chunker.chunks,
+        diagnostics,
+    }
 }
 
 struct Chunker<'a> {
@@ -52,21 +81,26 @@ struct Chunker<'a> {
     options: &'a ChunkOptions,
 }
 
-impl<'a> Chunker<'a> {
-    fn visit(&mut self, node: Node) {
-        let _ = if is_chunk_boundary_kind(node.kind()) {
-            Some(self.push_chunk(node, None))
+impl Chunker<'_> {
+    fn visit(&mut self, node: Node, depth: usize, parent: Option<ChunkId>) {
+        let this_id = if is_chunk_boundary_kind(node.kind()) {
+            self.push_chunk(node, depth, parent.clone())
         } else {
             None
         };
 
+        let child_parent = this_id.or(parent);
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
-            self.visit(child);
+            self.visit(child, depth + 1, child_parent.clone());
         }
     }
 
-    fn push_chunk(&mut self, node: Node, _parent: Option<ChunkId>) -> ChunkId {
+    fn push_chunk(&mut self, node: Node, depth: usize, parent: Option<ChunkId>) -> Option<ChunkId> {
+        if self.chunks.len() >= self.options.max_chunks {
+            return None;
+        }
+
         let byte_range = ByteRange::from(node.start_byte()..node.end_byte());
         let byte_len = byte_range.len();
         let name = node_name(node, self.source).map(Cow::into_owned);
@@ -94,9 +128,11 @@ impl<'a> Chunker<'a> {
             byte_range,
             estimated_tokens: estimate_tokens(byte_len).min(self.options.max_tokens.max(1)),
             confidence: Confidence::Exact,
+            depth,
+            parent,
         });
 
-        id
+        Some(id)
     }
 }
 

@@ -41,11 +41,16 @@ pub struct BundleOutput {
 #[derive(Clone, Debug)]
 pub struct BundleOptions {
     pub max_tokens: usize,
+    /// Maximum number of chunks to include in the bundle.
+    pub max_chunks: usize,
 }
 
 impl Default for BundleOptions {
     fn default() -> Self {
-        Self { max_tokens: 2_000 }
+        Self {
+            max_tokens: 2_000,
+            max_chunks: 100,
+        }
     }
 }
 
@@ -60,6 +65,7 @@ impl Default for BundleOptions {
 /// - Symbol-aware priority (boost chunks containing a target symbol)
 /// - Invalidation-aware priority (boost recently changed chunks)
 /// - Depth-based priority (boost top-level declarations)
+#[must_use]
 pub fn bundle_chunks(chunks: Vec<ChunkRecord>, opts: &BundleOptions) -> BundleOutput {
     let mut included = Vec::new();
     let mut omitted = Vec::new();
@@ -67,9 +73,14 @@ pub fn bundle_chunks(chunks: Vec<ChunkRecord>, opts: &BundleOptions) -> BundleOu
     let mut total_omitted = 0usize;
     let mut diagnostics = Vec::new();
 
-    // Sort by token count ascending (smaller first) to fit more chunks.
+    // Sort by depth ascending (top-level first), then by token count ascending
+    // (smaller first) to maximize coverage within each depth level.
     let mut sorted = chunks;
-    sorted.sort_by_key(|c| c.estimated_tokens);
+    sorted.sort_by(|a, b| {
+        a.depth
+            .cmp(&b.depth)
+            .then_with(|| a.estimated_tokens.cmp(&b.estimated_tokens))
+    });
 
     for chunk in sorted {
         let tokens = chunk.estimated_tokens;
@@ -84,7 +95,13 @@ pub fn bundle_chunks(chunks: Vec<ChunkRecord>, opts: &BundleOptions) -> BundleOu
             continue;
         }
 
-        if total_included + tokens <= opts.max_tokens {
+        if included.len() >= opts.max_chunks {
+            total_omitted += tokens;
+            omitted.push(OmittedChunk {
+                chunk,
+                reason: OmissionReason::LowPriority,
+            });
+        } else if total_included + tokens <= opts.max_tokens {
             total_included += tokens;
             included.push(chunk);
         } else {
@@ -130,7 +147,7 @@ mod tests {
                 name: Some(name.to_string()),
                 anchor_byte: 0,
             },
-            stable_id: StableId(format!("named:{}", name)),
+            stable_id: StableId(format!("named:{name}")),
             kind: "function_item".to_string(),
             name: Some(name.to_string()),
             byte_range: ByteRange {
@@ -139,6 +156,8 @@ mod tests {
             },
             estimated_tokens: tokens,
             confidence: Confidence::Exact,
+            depth: 0,
+            parent: None,
         }
     }
 
@@ -149,7 +168,10 @@ mod tests {
             dummy_chunk("bar", 200),
             dummy_chunk("baz", 300),
         ];
-        let opts = BundleOptions { max_tokens: 1_000 };
+        let opts = BundleOptions {
+            max_tokens: 1_000,
+            max_chunks: 100,
+        };
         let bundle = bundle_chunks(chunks, &opts);
 
         assert_eq!(bundle.included.len(), 3);
@@ -164,7 +186,10 @@ mod tests {
             dummy_chunk("bar", 200),
             dummy_chunk("baz", 300),
         ];
-        let opts = BundleOptions { max_tokens: 400 };
+        let opts = BundleOptions {
+            max_tokens: 400,
+            max_chunks: 100,
+        };
         let bundle = bundle_chunks(chunks, &opts);
 
         assert_eq!(bundle.included.len(), 2); // 100 + 200
@@ -176,7 +201,10 @@ mod tests {
     #[test]
     fn omits_single_chunk_larger_than_budget() {
         let chunks = vec![dummy_chunk("huge", 5_000)];
-        let opts = BundleOptions { max_tokens: 2_000 };
+        let opts = BundleOptions {
+            max_tokens: 2_000,
+            max_chunks: 100,
+        };
         let bundle = bundle_chunks(chunks, &opts);
 
         assert!(bundle.included.is_empty());

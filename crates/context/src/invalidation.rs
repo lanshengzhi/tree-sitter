@@ -22,8 +22,10 @@ pub fn invalidate_snapshot(
 ) -> Result<InvalidationOutput> {
     let options = ChunkOptions::default();
 
-    let old_chunks = chunks_for_tree(old_tree, path, old_source, &options);
-    let new_chunks = chunks_for_tree(new_tree, path, new_source, &options);
+    let old_result = chunks_for_tree(old_tree, path, old_source, &options);
+    let new_result = chunks_for_tree(new_tree, path, new_source, &options);
+    let old_chunks = old_result.chunks;
+    let new_chunks = new_result.chunks;
 
     let changed_ranges: Vec<ByteRange> = old_tree
         .changed_ranges(new_tree)
@@ -55,8 +57,18 @@ pub fn invalidate_snapshot(
     let matches = match_chunks(&old_chunks, &new_chunks);
     for m in matches {
         match m {
-            MatchResult::Unchanged { old: _, new } => {
-                if overlaps_any(&new.byte_range, &changed_ranges) {
+            MatchResult::Unchanged { old, new } => {
+                if !source_equal_ignoring_whitespace(
+                    old_source,
+                    &old.byte_range,
+                    new_source,
+                    &new.byte_range,
+                ) {
+                    // Content changed even if changed_ranges (from independent
+                    // parses) did not report it — e.g. literal-only changes.
+                    if !overlaps_any(&new.byte_range, &changed_ranges) {
+                        output.changed_ranges.push(new.byte_range);
+                    }
                     output.affected.push(new);
                 } else {
                     output.unchanged.push(new);
@@ -132,7 +144,9 @@ pub fn invalidate_edits(
         .parse(new_source, Some(&tree))
         .ok_or_else(|| anyhow!("incremental re-parse failed for {}", path.display()))?;
 
-    let mut output = invalidate_snapshot(&tree, &new_tree, source, new_source, path)?;
+    // Use the original old_tree for chunk extraction so byte ranges align
+    // with the old source. The edited tree is only needed for incremental parsing.
+    let mut output = invalidate_snapshot(old_tree, &new_tree, source, new_source, path)?;
 
     // Downgrade confidence for edit-stream invalidation.
     for chunk in &mut output.affected {
@@ -155,16 +169,275 @@ fn overlaps_any(range: &ByteRange, ranges: &[ByteRange]) -> bool {
         .any(|r| range.start < r.end && range.end > r.start)
 }
 
-// Unit tests for invalidation require a compiled tree-sitter grammar
-// (e.g. tree-sitter-rust) which is not available in the standard test
-// environment. Integration tests should be added under crates/cli/tests/
-// or tested manually with:
-//
-//   cargo run -- context --old old.rs new.rs
-//
-// Required test coverage:
-// 1. body_only_change: edit function body, expect 1 affected chunk.
-// 2. signature_change: edit function signature, expect 1 affected chunk.
-// 3. doc_only_change: edit doc comment, expect 1 affected chunk.
-// 4. whitespace_only_change: reformat whitespace, expect 0 affected chunks.
-// 5. edit_sequence_correctness: apply multiple InputEdits, verify affected set.
+/// Compare two source slices (within given byte ranges) for equality,
+/// ignoring ASCII whitespace.
+///
+/// This prevents whitespace-only reformats from being classified as affected.
+fn source_equal_ignoring_whitespace(
+    old_source: &[u8],
+    old_range: &ByteRange,
+    new_source: &[u8],
+    new_range: &ByteRange,
+) -> bool {
+    let old = &old_source[old_range.start..old_range.end.min(old_source.len())];
+    let new = &new_source[new_range.start..new_range.end.min(new_source.len())];
+    old.iter()
+        .filter(|&&c| !c.is_ascii_whitespace())
+        .eq(new.iter().filter(|&&c| !c.is_ascii_whitespace()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+    use tree_sitter::{InputEdit, Parser, Point};
+
+    fn rust_parser() -> Parser {
+        let raw = unsafe { tree_sitter_rust::LANGUAGE.into_raw()() };
+        let language: tree_sitter::Language = unsafe { std::mem::transmute(raw) };
+        let mut parser = Parser::new();
+        parser.set_language(&language).unwrap();
+        parser
+    }
+
+    #[test]
+    fn body_only_change() {
+        let mut parser = rust_parser();
+        let old_source = b"fn foo() { let x = 1; }";
+        let new_source = b"fn foo() { let x = 1; let y = 2; }";
+
+        let old_tree = parser.parse(old_source, None).unwrap();
+        let new_tree = parser.parse(new_source, None).unwrap();
+
+        let output = invalidate_snapshot(
+            &old_tree,
+            &new_tree,
+            old_source,
+            new_source,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            output.affected.len(),
+            1,
+            "expected 1 affected chunk, got affected={:?} added={:?} removed={:?} unchanged={:?}",
+            output.affected,
+            output.added,
+            output.removed,
+            output.unchanged
+        );
+        assert!(output.added.is_empty());
+        assert!(output.removed.is_empty());
+    }
+
+    #[test]
+    fn signature_change() {
+        let mut parser = rust_parser();
+        let old_source = b"fn foo() {}";
+        let new_source = b"fn foo(x: i32) {}";
+
+        let old_tree = parser.parse(old_source, None).unwrap();
+        let new_tree = parser.parse(new_source, None).unwrap();
+
+        let output = invalidate_snapshot(
+            &old_tree,
+            &new_tree,
+            old_source,
+            new_source,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            output.affected.len(),
+            1,
+            "expected 1 affected chunk, got affected={:?} added={:?} removed={:?} unchanged={:?}",
+            output.affected,
+            output.added,
+            output.removed,
+            output.unchanged
+        );
+        assert!(output.added.is_empty());
+        assert!(output.removed.is_empty());
+    }
+
+    #[test]
+    fn comment_inside_body_change() {
+        let mut parser = rust_parser();
+        let old_source = b"fn foo() { let x = 1; }";
+        let new_source = b"fn foo() { let x = 1; /* note */ }";
+
+        let old_tree = parser.parse(old_source, None).unwrap();
+        let new_tree = parser.parse(new_source, None).unwrap();
+
+        let output = invalidate_snapshot(
+            &old_tree,
+            &new_tree,
+            old_source,
+            new_source,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            output.affected.len(),
+            1,
+            "expected 1 affected chunk, got affected={:?} added={:?} removed={:?} unchanged={:?}",
+            output.affected,
+            output.added,
+            output.removed,
+            output.unchanged
+        );
+    }
+
+    #[test]
+    fn whitespace_only_change() {
+        let mut parser = rust_parser();
+        let old_source = b"fn foo() { let x = 1; }";
+        let new_source = b"fn foo() {\n    let x = 1;\n}";
+
+        let old_tree = parser.parse(old_source, None).unwrap();
+        let new_tree = parser.parse(new_source, None).unwrap();
+
+        let output = invalidate_snapshot(
+            &old_tree,
+            &new_tree,
+            old_source,
+            new_source,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        assert!(
+            output.affected.is_empty(),
+            "expected 0 affected chunks for whitespace-only change, got affected={:?} added={:?} removed={:?}",
+            output.affected,
+            output.added,
+            output.removed
+        );
+    }
+
+    #[test]
+    fn edit_sequence_correctness() {
+        let mut parser = rust_parser();
+        let old_source = b"fn foo() { let x = 1; }";
+        let new_source = b"fn bar() { let x = 2; }";
+
+        let old_tree = parser.parse(old_source, None).unwrap();
+
+        // Two edits: rename foo -> bar, and change 1 -> 2.
+        let edits = vec![
+            InputEdit {
+                start_byte: 3,
+                old_end_byte: 6,
+                new_end_byte: 6,
+                start_position: Point::new(0, 3),
+                old_end_position: Point::new(0, 6),
+                new_end_position: Point::new(0, 6),
+            },
+            InputEdit {
+                start_byte: 19,
+                old_end_byte: 20,
+                new_end_byte: 20,
+                start_position: Point::new(0, 19),
+                old_end_position: Point::new(0, 20),
+                new_end_position: Point::new(0, 20),
+            },
+        ];
+
+        let output = invalidate_edits(
+            &mut parser,
+            &old_tree,
+            old_source,
+            new_source,
+            &edits,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        // Name change -> old removed, new added. Body change overlaps changed range
+        // but the new chunk is already in added, so it should not be duplicated in affected.
+        assert_eq!(
+            output.added.len(),
+            1,
+            "expected 1 added chunk, got added={:?} affected={:?} removed={:?}",
+            output.added,
+            output.affected,
+            output.removed
+        );
+        assert_eq!(output.removed.len(), 1, "expected 1 removed chunk");
+        assert!(
+            output.affected.is_empty(),
+            "expected 0 affected chunks when name changes, got affected={:?}",
+            output.affected
+        );
+    }
+
+    #[test]
+    fn edit_length_change() {
+        let mut parser = rust_parser();
+        let old_source = b"fn foo() { let x = 1; }";
+        let new_source = b"fn foo() { let x = 10; }";
+
+        let old_tree = parser.parse(old_source, None).unwrap();
+
+        let edits = vec![InputEdit {
+            start_byte: 19,
+            old_end_byte: 20,
+            new_end_byte: 21,
+            start_position: Point::new(0, 19),
+            old_end_position: Point::new(0, 20),
+            new_end_position: Point::new(0, 21),
+        }];
+
+        let output = invalidate_edits(
+            &mut parser,
+            &old_tree,
+            old_source,
+            new_source,
+            &edits,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            output.affected.len(),
+            1,
+            "expected 1 affected chunk for length-changing body edit, got affected={:?} added={:?} removed={:?}",
+            output.affected,
+            output.added,
+            output.removed
+        );
+        assert!(output.added.is_empty());
+        assert!(output.removed.is_empty());
+    }
+
+    #[test]
+    fn literal_only_change() {
+        let mut parser = rust_parser();
+        let old_source = b"fn foo() { let x = \"foo\"; }";
+        let new_source = b"fn foo() { let x = \"bar\"; }";
+
+        let old_tree = parser.parse(old_source, None).unwrap();
+        let new_tree = parser.parse(new_source, None).unwrap();
+
+        let output = invalidate_snapshot(
+            &old_tree,
+            &new_tree,
+            old_source,
+            new_source,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        assert!(
+            !output.affected.is_empty(),
+            "expected at least 1 affected chunk for literal-only change, got affected={:?} added={:?} removed={:?} unchanged={:?}",
+            output.affected,
+            output.added,
+            output.removed,
+            output.unchanged
+        );
+    }
+}
