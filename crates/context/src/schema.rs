@@ -40,6 +40,7 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
+    #[must_use]
     pub fn info(message: impl Into<String>) -> Self {
         Self {
             level: DiagnosticLevel::Info,
@@ -48,6 +49,7 @@ impl Diagnostic {
         }
     }
 
+    #[must_use]
     pub fn warn(message: impl Into<String>) -> Self {
         Self {
             level: DiagnosticLevel::Warning,
@@ -56,6 +58,7 @@ impl Diagnostic {
         }
     }
 
+    #[must_use]
     pub fn error(message: impl Into<String>) -> Self {
         Self {
             level: DiagnosticLevel::Error,
@@ -64,6 +67,7 @@ impl Diagnostic {
         }
     }
 
+    #[must_use]
     pub fn with_context(mut self, context: impl Into<String>) -> Self {
         self.context = Some(context.into());
         self
@@ -87,12 +91,14 @@ impl From<Range<usize>> for ByteRange {
 }
 
 impl ByteRange {
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.end.saturating_sub(self.start)
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.start == self.end
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -123,6 +129,17 @@ pub struct ChunkRecord {
     pub byte_range: ByteRange,
     pub estimated_tokens: usize,
     pub confidence: Confidence,
+    /// Nesting depth in the syntax tree (0 = top-level declaration).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub depth: usize,
+    /// Parent chunk identifier, if this chunk is nested inside another chunk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<ChunkId>,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// Metadata about the output payload.
@@ -141,7 +158,8 @@ pub struct SymbolRecord {
     pub name: String,
     pub syntax_type: String,
     pub byte_range: ByteRange,
-    pub line_range: ByteRange,
+    /// Line range (`start_line..end_line`) of the symbol in the source file.
+    pub lines: ByteRange,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub docs: Option<String>,
     pub is_definition: bool,
@@ -176,6 +194,7 @@ pub struct InvalidationOutput {
 }
 
 impl ContextOutput {
+    #[must_use]
     pub fn new(schema_version: impl Into<String>) -> Self {
         Self {
             chunks: Vec::new(),
@@ -200,8 +219,131 @@ impl ContextOutput {
         self.chunks.push(chunk);
     }
 
+    #[must_use]
     pub fn with_source_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.meta.source_path = Some(path.into());
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::StableId;
+
+    #[test]
+    fn confidence_serializes_to_snake_case() {
+        let json = serde_json::to_string(&Confidence::Exact).unwrap();
+        assert_eq!(json, "\"exact\"");
+        let json = serde_json::to_string(&Confidence::High).unwrap();
+        assert_eq!(json, "\"high\"");
+        let json = serde_json::to_string(&Confidence::Medium).unwrap();
+        assert_eq!(json, "\"medium\"");
+        let json = serde_json::to_string(&Confidence::Low).unwrap();
+        assert_eq!(json, "\"low\"");
+    }
+
+    #[test]
+    fn diagnostic_level_serializes_to_snake_case() {
+        let json = serde_json::to_string(&DiagnosticLevel::Info).unwrap();
+        assert_eq!(json, "\"info\"");
+        let json = serde_json::to_string(&DiagnosticLevel::Warning).unwrap();
+        assert_eq!(json, "\"warning\"");
+        let json = serde_json::to_string(&DiagnosticLevel::Error).unwrap();
+        assert_eq!(json, "\"error\"");
+    }
+
+    #[test]
+    fn context_output_snapshot_stability() {
+        let mut output = ContextOutput::new("0.1.0").with_source_path("src/lib.rs");
+        output.push_chunk(ChunkRecord {
+            id: ChunkId {
+                path: PathBuf::from("src/lib.rs"),
+                kind: "function_item".to_string(),
+                name: Some("foo".to_string()),
+                anchor_byte: 0,
+            },
+            stable_id: StableId("named:test".to_string()),
+            kind: "function_item".to_string(),
+            name: Some("foo".to_string()),
+            byte_range: ByteRange { start: 0, end: 11 },
+            estimated_tokens: 3,
+            confidence: Confidence::Exact,
+            depth: 0,
+            parent: None,
+        });
+        output.push_diagnostic(Diagnostic::info("test diagnostic"));
+
+        let json = serde_json::to_string_pretty(&output).unwrap();
+
+        // Verify key fields are present and use expected naming.
+        assert!(json.contains("\"schema_version\": \"0.1.0\""));
+        assert!(json.contains("\"source_path\": \"src/lib.rs\""));
+        assert!(json.contains("\"chunks\""));
+        assert!(json.contains("\"symbols\""));
+        assert!(json.contains("\"diagnostics\""));
+        assert!(json.contains("\"meta\""));
+        assert!(json.contains("\"total_chunks\": 1"));
+        assert!(json.contains("\"total_estimated_tokens\": 3"));
+        assert!(json.contains("\"stable_id\""));
+        assert!(json.contains("\"byte_range\""));
+        assert!(json.contains("\"estimated_tokens\""));
+        assert!(json.contains("\"confidence\": \"exact\""));
+        assert!(json.contains("\"level\": \"info\""));
+        assert!(json.contains("\"message\": \"test diagnostic\""));
+
+        // Round-trip check.
+        let deserialized: ContextOutput = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.meta.schema_version, "0.1.0");
+        assert_eq!(deserialized.chunks.len(), 1);
+        assert_eq!(deserialized.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn invalidation_output_snapshot_stability() {
+        let output = InvalidationOutput {
+            affected: vec![ChunkRecord {
+                id: ChunkId {
+                    path: PathBuf::from("src/lib.rs"),
+                    kind: "function_item".to_string(),
+                    name: Some("foo".to_string()),
+                    anchor_byte: 0,
+                },
+                stable_id: StableId("named:test".to_string()),
+                kind: "function_item".to_string(),
+                name: Some("foo".to_string()),
+                byte_range: ByteRange { start: 0, end: 11 },
+                estimated_tokens: 3,
+                confidence: Confidence::Medium,
+                depth: 0,
+                parent: None,
+            }],
+            added: vec![],
+            removed: vec![],
+            unchanged: vec![],
+            changed_ranges: vec![ByteRange { start: 0, end: 11 }],
+            diagnostics: vec![Diagnostic::info("1 affected chunk(s)")],
+            meta: OutputMeta {
+                schema_version: "0.1.0".to_string(),
+                source_path: Some(PathBuf::from("src/lib.rs")),
+                total_chunks: 1,
+                total_estimated_tokens: 3,
+            },
+        };
+
+        let json = serde_json::to_string_pretty(&output).unwrap();
+
+        assert!(json.contains("\"affected\""));
+        assert!(json.contains("\"added\""));
+        assert!(json.contains("\"removed\""));
+        assert!(json.contains("\"unchanged\""));
+        assert!(json.contains("\"changed_ranges\""));
+        assert!(json.contains("\"diagnostics\""));
+        assert!(json.contains("\"meta\""));
+        assert!(json.contains("\"confidence\": \"medium\""));
+
+        let deserialized: InvalidationOutput = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.affected.len(), 1);
+        assert_eq!(deserialized.changed_ranges.len(), 1);
     }
 }
