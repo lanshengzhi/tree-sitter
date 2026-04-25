@@ -1,5 +1,3 @@
-<!-- /autoplan restore point: /home/lansy/.gstack/projects/lanshengzhi-tree-sitter/rfc-tree-sitter-context-autoplan-restore-20260424-221541.md -->
-
 ---
 title: "RFC: tree-sitter-context"
 created: 2026-04-24
@@ -905,10 +903,10 @@ CLI wrapper
 
 Findings:
 
-1. [P1] (confidence: 8/10) `docs/ts.md:191` - `changed_chunks(old, new_source, edit)` conflates editor edit-sequence mode with old/new snapshot mode. Decision: split into explicit API modes and mark snapshot diff as degraded confidence.
-2. [P1] (confidence: 8/10) `docs/ts.md:159` - `ChunkId` and identity stability are not defined strongly enough for invalidation. Decision: v1 schema must define stable identity inputs such as path, language, node kind, name path, byte/point range, and content hash.
-3. [P2] (confidence: 8/10) `docs/ts.md:147` - `ContextEngine` risks coupling core library to loader/tokenizer state too early. Decision: core should accept parsed `Tree`, `Language`, source bytes, and optional `TagsConfiguration`; CLI owns loader discovery.
-4. [P2] (confidence: 7/10) `docs/ts.md:320` - referenced symbol signatures require an index/resolver that v1 does not have. Decision: same-file references only unless caller provides an explicit symbol index.
+1. [P1] (confidence: 8/10) `docs/plans/tree-sitter-context-rfc-2026-04-24.md:191` - `changed_chunks(old, new_source, edit)` conflates editor edit-sequence mode with old/new snapshot mode. Decision: split into explicit API modes and mark snapshot diff as degraded confidence.
+2. [P1] (confidence: 8/10) `docs/plans/tree-sitter-context-rfc-2026-04-24.md:159` - `ChunkId` and identity stability are not defined strongly enough for invalidation. Decision: v1 schema must define stable identity inputs such as path, language, node kind, name path, byte/point range, and content hash.
+3. [P2] (confidence: 8/10) `docs/plans/tree-sitter-context-rfc-2026-04-24.md:147` - `ContextEngine` risks coupling core library to loader/tokenizer state too early. Decision: core should accept parsed `Tree`, `Language`, source bytes, and optional `TagsConfiguration`; CLI owns loader discovery.
+4. [P2] (confidence: 7/10) `docs/plans/tree-sitter-context-rfc-2026-04-24.md:320` - referenced symbol signatures require an index/resolver that v1 does not have. Decision: same-file references only unless caller provides an explicit symbol index.
 
 #### Section 2: Code Quality
 
@@ -968,7 +966,7 @@ WORKFLOW / BENCHMARK PATHS
 
 Coverage: plan-stage only; existing upstream tests cover parser/tags primitives, but new context paths are not implemented yet. Required implementation tests are all gaps and must be added with the feature slices.
 
-Test plan artifact written: `/home/lansy/.gstack/projects/lanshengzhi-tree-sitter/lansy-rfc-tree-sitter-context-eng-review-test-plan-20260424-222832.md`.
+The original local review run also generated a temporary test-plan artifact; durable follow-up work is tracked in [tree-sitter-context follow-up plan](tree-sitter-context-follow-up-plan-2026-04-25.md).
 
 #### Section 4: Performance
 
@@ -1027,7 +1025,7 @@ Parallel lanes: Lane A `schema + diagnostics -> chunk identity`; Lane B `tags ad
 | Performance Review | 3 issues found |
 | NOT in scope | Written, 4 items |
 | What already exists | Written |
-| Test plan artifact | Written to `.gstack/projects` |
+| Temporary test plan artifact | Generated during local review, not committed |
 | Failure modes | 4 critical gaps flagged |
 | Outside voice | Codex + Claude subagent ran |
 | Parallelization | 3 lanes identified, mostly sequential due shared crate |
