@@ -1,16 +1,12 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-    path::Path,
-};
+use std::{collections::VecDeque, path::Path};
 
-use crate::schema::{ByteRange, ChunkRecord};
+use crate::schema::{ByteRange, ChunkId, ChunkRecord};
 
 /// A stable, cross-run identifier for a code chunk.
 ///
 /// `StableId` survives byte-offset shifts and minor edits.
-/// Named chunks are identified by `(path, kind, name)`.
-/// Unnamed chunks fall back to `(path, kind, content_hash)`.
+/// Named chunks are identified by `(path, kind, name, parent)`.
+/// Unnamed chunks fall back to `(path, kind, content_hash, parent)`.
 #[derive(
     Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
@@ -24,22 +20,70 @@ impl StableId {
         path: &Path,
         kind: &str,
         name: Option<&str>,
+        parent: Option<&ChunkId>,
         source: &[u8],
         byte_range: &ByteRange,
     ) -> Self {
-        let mut hasher = DefaultHasher::new();
-        path.hash(&mut hasher);
-        kind.hash(&mut hasher);
+        let mut digest = StableDigest::new();
+        digest.write_field(normalized_path(path).as_bytes());
+        digest.write_field(kind.as_bytes());
+        digest.write_optional_field(name.map(str::as_bytes));
+        digest.write_optional_field(parent.map(|p| p.kind.as_bytes()));
+        digest.write_optional_field(parent.and_then(|p| p.name.as_deref().map(str::as_bytes)));
 
-        if let Some(name) = name {
-            name.hash(&mut hasher);
-            Self(format!("named:{:016x}", hasher.finish()))
+        if name.is_some() {
+            Self(format!("named:{:032x}", digest.finish()))
         } else {
             let content = &source[byte_range.start..byte_range.end.min(source.len())];
-            content.hash(&mut hasher);
-            Self(format!("unnamed:{:016x}", hasher.finish()))
+            digest.write_field(content);
+            Self(format!("unnamed:{:032x}", digest.finish()))
         }
     }
+}
+
+/// Deterministic 128-bit FNV-1a digest for stable IDs.
+///
+/// This is intentionally explicit instead of using `DefaultHasher`, whose
+/// output is not a public stability contract.
+struct StableDigest(u128);
+
+impl StableDigest {
+    const OFFSET: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
+    const PRIME: u128 = 0x0000_0000_0100_0000_0000_0000_0000_013b;
+
+    const fn new() -> Self {
+        Self(Self::OFFSET)
+    }
+
+    fn write_field(&mut self, bytes: &[u8]) {
+        self.write_bytes(&(bytes.len() as u64).to_le_bytes());
+        self.write_bytes(bytes);
+    }
+
+    fn write_optional_field(&mut self, bytes: Option<&[u8]>) {
+        match bytes {
+            Some(bytes) => {
+                self.write_bytes(&[1]);
+                self.write_field(bytes);
+            }
+            None => self.write_bytes(&[0]),
+        }
+    }
+
+    fn write_bytes(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.0 ^= u128::from(*byte);
+            self.0 = self.0.wrapping_mul(Self::PRIME);
+        }
+    }
+
+    const fn finish(self) -> u128 {
+        self.0
+    }
+}
+
+fn normalized_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 /// Result of matching a chunk across two parse runs.
@@ -56,30 +100,29 @@ pub enum MatchResult {
 
 /// Match chunks from an old snapshot against chunks from a new snapshot.
 ///
-/// Returns one `MatchResult` per unique stable identity across both sets.
+/// Returns one `MatchResult` per chunk across both sets.
 #[must_use]
 pub fn match_chunks(old: &[ChunkRecord], new: &[ChunkRecord]) -> Vec<MatchResult> {
     use std::collections::HashMap;
 
-    let old_by_id: HashMap<_, _> = old
-        .iter()
-        .map(|c| (c.stable_id.clone(), c.clone()))
-        .collect();
-    let new_by_id: HashMap<_, _> = new
-        .iter()
-        .map(|c| (c.stable_id.clone(), c.clone()))
-        .collect();
+    let mut new_by_id: HashMap<_, VecDeque<_>> = HashMap::new();
+    for chunk in new {
+        new_by_id
+            .entry(chunk.stable_id.clone())
+            .or_default()
+            .push_back(chunk.clone());
+    }
 
     let mut results = Vec::new();
-    let mut seen = std::collections::HashSet::new();
 
-    // Find unchanged and removed
-    for (id, old_chunk) in &old_by_id {
-        if let Some(new_chunk) = new_by_id.get(id) {
-            seen.insert(id.clone());
+    // Find unchanged and removed in old traversal order.
+    for old_chunk in old {
+        if let Some(new_chunks) = new_by_id.get_mut(&old_chunk.stable_id)
+            && let Some(new_chunk) = new_chunks.pop_front()
+        {
             results.push(MatchResult::Unchanged {
                 old: old_chunk.clone(),
-                new: new_chunk.clone(),
+                new: new_chunk,
             });
         } else {
             results.push(MatchResult::Removed {
@@ -88,12 +131,12 @@ pub fn match_chunks(old: &[ChunkRecord], new: &[ChunkRecord]) -> Vec<MatchResult
         }
     }
 
-    // Find added
-    for (id, new_chunk) in &new_by_id {
-        if !seen.contains(id) {
-            results.push(MatchResult::Added {
-                new: new_chunk.clone(),
-            });
+    // Find added in new traversal order.
+    for new_chunk in new {
+        if let Some(new_chunks) = new_by_id.get_mut(&new_chunk.stable_id)
+            && let Some(remaining) = new_chunks.pop_front()
+        {
+            results.push(MatchResult::Added { new: remaining });
         }
     }
 
@@ -106,16 +149,23 @@ mod tests {
     use std::path::PathBuf;
 
     fn dummy_chunk(name: Option<&str>, stable_id: StableId) -> ChunkRecord {
+        dummy_chunk_at(name, stable_id, 0)
+    }
+
+    fn dummy_chunk_at(name: Option<&str>, stable_id: StableId, anchor_byte: usize) -> ChunkRecord {
         ChunkRecord {
             id: crate::schema::ChunkId {
                 path: PathBuf::from("test.rs"),
                 kind: "function_item".to_string(),
                 name: name.map(String::from),
-                anchor_byte: 0,
+                anchor_byte,
             },
             kind: "function_item".to_string(),
             name: name.map(String::from),
-            byte_range: ByteRange { start: 0, end: 10 },
+            byte_range: ByteRange {
+                start: anchor_byte,
+                end: anchor_byte + 10,
+            },
             estimated_tokens: 2,
             confidence: crate::schema::Confidence::Exact,
             stable_id,
@@ -133,6 +183,7 @@ mod tests {
             Path::new("src/lib.rs"),
             "function_item",
             Some("foo"),
+            None,
             source,
             &range,
         );
@@ -140,6 +191,7 @@ mod tests {
             Path::new("src/lib.rs"),
             "function_item",
             Some("foo"),
+            None,
             source,
             &range,
         );
@@ -156,6 +208,7 @@ mod tests {
             Path::new("src/lib.rs"),
             "function_item",
             Some("foo"),
+            None,
             source,
             &range,
         );
@@ -163,6 +216,7 @@ mod tests {
             Path::new("src/lib.rs"),
             "function_item",
             Some("bar"),
+            None,
             source,
             &range,
         );
@@ -176,8 +230,22 @@ mod tests {
         let source2 = b"{ let x = 2; }";
         let range = ByteRange { start: 0, end: 14 };
 
-        let id1 = StableId::compute(Path::new("src/lib.rs"), "block", None, source1, &range);
-        let id2 = StableId::compute(Path::new("src/lib.rs"), "block", None, source2, &range);
+        let id1 = StableId::compute(
+            Path::new("src/lib.rs"),
+            "block",
+            None,
+            None,
+            source1,
+            &range,
+        );
+        let id2 = StableId::compute(
+            Path::new("src/lib.rs"),
+            "block",
+            None,
+            None,
+            source2,
+            &range,
+        );
 
         assert_ne!(id1, id2);
     }
@@ -188,8 +256,22 @@ mod tests {
         let range1 = ByteRange { start: 11, end: 23 };
         let range2 = ByteRange { start: 11, end: 23 };
 
-        let id1 = StableId::compute(Path::new("src/lib.rs"), "block", None, source, &range1);
-        let id2 = StableId::compute(Path::new("src/lib.rs"), "block", None, source, &range2);
+        let id1 = StableId::compute(
+            Path::new("src/lib.rs"),
+            "block",
+            None,
+            None,
+            source,
+            &range1,
+        );
+        let id2 = StableId::compute(
+            Path::new("src/lib.rs"),
+            "block",
+            None,
+            None,
+            source,
+            &range2,
+        );
 
         assert_eq!(id1, id2);
     }
@@ -224,6 +306,46 @@ mod tests {
     }
 
     #[test]
+    fn match_chunks_preserves_duplicate_stable_ids() {
+        let old = vec![
+            dummy_chunk_at(Some("foo"), StableId("named:a".to_string()), 0),
+            dummy_chunk_at(Some("foo"), StableId("named:a".to_string()), 20),
+        ];
+        let new = vec![
+            dummy_chunk_at(Some("foo"), StableId("named:a".to_string()), 0),
+            dummy_chunk_at(Some("foo"), StableId("named:a".to_string()), 20),
+        ];
+
+        let results = match_chunks(&old, &new);
+
+        assert_eq!(results.len(), 2);
+        assert!(
+            results
+                .iter()
+                .all(|r| matches!(r, MatchResult::Unchanged { .. }))
+        );
+    }
+
+    #[test]
+    fn match_chunks_reports_extra_duplicate_as_added() {
+        let old = vec![dummy_chunk_at(
+            Some("foo"),
+            StableId("named:a".to_string()),
+            0,
+        )];
+        let new = vec![
+            dummy_chunk_at(Some("foo"), StableId("named:a".to_string()), 0),
+            dummy_chunk_at(Some("foo"), StableId("named:a".to_string()), 20),
+        ];
+
+        let results = match_chunks(&old, &new);
+
+        assert_eq!(results.len(), 2);
+        assert!(matches!(results[0], MatchResult::Unchanged { .. }));
+        assert!(matches!(results[1], MatchResult::Added { .. }));
+    }
+
+    #[test]
     fn collision_resistance_for_different_paths() {
         let source = b"fn foo() {}";
         let range = ByteRange { start: 0, end: 11 };
@@ -232,6 +354,7 @@ mod tests {
             Path::new("a.rs"),
             "function_item",
             Some("foo"),
+            None,
             source,
             &range,
         );
@@ -239,6 +362,7 @@ mod tests {
             Path::new("b.rs"),
             "function_item",
             Some("foo"),
+            None,
             source,
             &range,
         );

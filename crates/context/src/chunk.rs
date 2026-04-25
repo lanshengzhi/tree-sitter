@@ -48,11 +48,22 @@ pub fn chunks_for_tree(
         source,
         chunks: Vec::new(),
         options,
+        confidence: if tree.root_node().has_error() {
+            Confidence::Low
+        } else {
+            Confidence::Exact
+        },
     };
 
     chunker.visit(tree.root_node(), 0, None);
 
     let mut diagnostics = Vec::new();
+
+    if tree.root_node().has_error() {
+        diagnostics.push(Diagnostic::warn(
+            "parse tree contains syntax errors; chunk confidence downgraded",
+        ));
+    }
 
     if chunker.chunks.is_empty() {
         chunker.push_chunk(tree.root_node(), 0, None);
@@ -79,6 +90,7 @@ struct Chunker<'a> {
     source: &'a [u8],
     chunks: Vec<ChunkRecord>,
     options: &'a ChunkOptions,
+    confidence: Confidence,
 }
 
 impl Chunker<'_> {
@@ -116,6 +128,7 @@ impl Chunker<'_> {
             self.path,
             node.kind(),
             name.as_deref(),
+            parent.as_ref(),
             self.source,
             &byte_range,
         );
@@ -126,8 +139,8 @@ impl Chunker<'_> {
             kind: node.kind().to_string(),
             name,
             byte_range,
-            estimated_tokens: estimate_tokens(byte_len).min(self.options.max_tokens.max(1)),
-            confidence: Confidence::Exact,
+            estimated_tokens: estimate_tokens(byte_len),
+            confidence: self.confidence,
             depth,
             parent,
         });
@@ -185,7 +198,18 @@ fn estimate_tokens(byte_len: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{estimate_tokens, is_chunk_boundary_kind};
+    use super::{ChunkOptions, chunks_for_tree, estimate_tokens, is_chunk_boundary_kind};
+    use crate::schema::Confidence;
+    use std::path::Path;
+    use tree_sitter::Parser;
+
+    fn rust_parser() -> Parser {
+        let raw = unsafe { tree_sitter_rust::LANGUAGE.into_raw()() };
+        let language: tree_sitter::Language = unsafe { std::mem::transmute(raw) };
+        let mut parser = Parser::new();
+        parser.set_language(&language).unwrap();
+        parser
+    }
 
     #[test]
     fn recognizes_common_chunk_boundaries() {
@@ -203,5 +227,52 @@ mod tests {
         assert_eq!(estimate_tokens(1), 1);
         assert_eq!(estimate_tokens(4), 1);
         assert_eq!(estimate_tokens(5), 2);
+    }
+
+    #[test]
+    fn records_true_estimated_tokens_even_when_max_tokens_is_smaller() {
+        let mut parser = rust_parser();
+        let source = b"fn huge() { let value = 1; let other = 2; let third = 3; }";
+        let tree = parser.parse(source, None).unwrap();
+
+        let output = chunks_for_tree(
+            &tree,
+            Path::new("test.rs"),
+            source,
+            &ChunkOptions {
+                max_tokens: 1,
+                max_chunks: 1_000,
+            },
+        );
+
+        assert_eq!(output.chunks.len(), 1);
+        assert!(output.chunks[0].estimated_tokens > 1);
+    }
+
+    #[test]
+    fn parse_errors_emit_diagnostic_and_downgrade_confidence() {
+        let mut parser = rust_parser();
+        let source = b"fn broken(";
+        let tree = parser.parse(source, None).unwrap();
+
+        let output = chunks_for_tree(
+            &tree,
+            Path::new("test.rs"),
+            source,
+            &ChunkOptions::default(),
+        );
+
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("syntax errors"))
+        );
+        assert!(
+            output
+                .chunks
+                .iter()
+                .all(|chunk| chunk.confidence == Confidence::Low)
+        );
     }
 }

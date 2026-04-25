@@ -1,7 +1,7 @@
 //! Smoke benchmark for tree-sitter-context.
 //!
 //! Run with:
-//!   `cargo run -p tree-sitter-context --bin smoke_benchmark`
+//!   `cargo run -p tree-sitter-context --example smoke_benchmark`
 
 use std::{
     fs,

@@ -1,12 +1,16 @@
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
+use similar::{DiffTag, TextDiff};
 use tree_sitter::{InputEdit, Parser, Tree};
 
 use crate::{
     chunk::{ChunkOptions, chunks_for_tree},
     identity::{MatchResult, match_chunks},
-    schema::{ByteRange, Confidence, Diagnostic, InvalidationOutput, OutputMeta},
+    schema::{
+        ByteRange, Confidence, Diagnostic, InvalidationOutput, InvalidationReason,
+        InvalidationRecord, InvalidationStatus, MatchStrategy, OutputMeta,
+    },
 };
 
 /// Compare an old and new snapshot of a file.
@@ -27,12 +31,10 @@ pub fn invalidate_snapshot(
     let old_chunks = old_result.chunks;
     let new_chunks = new_result.chunks;
 
-    let changed_ranges: Vec<ByteRange> = old_tree
-        .changed_ranges(new_tree)
-        .map(|r| ByteRange::from(r.start_byte..r.end_byte))
-        .collect();
+    let changed_ranges = snapshot_changed_ranges(old_source, new_source);
 
     let mut output = InvalidationOutput {
+        records: Vec::new(),
         affected: Vec::new(),
         added: Vec::new(),
         removed: Vec::new(),
@@ -53,6 +55,19 @@ pub fn invalidate_snapshot(
         ));
     }
 
+    output.diagnostics.extend(
+        old_result
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| diagnostic.with_source("old_snapshot_chunking")),
+    );
+    output.diagnostics.extend(
+        new_result
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| diagnostic.with_source("new_snapshot_chunking")),
+    );
+
     // Classify chunks by stable identity.
     let matches = match_chunks(&old_chunks, &new_chunks);
     for m in matches {
@@ -69,15 +84,54 @@ pub fn invalidate_snapshot(
                     if !overlaps_any(&new.byte_range, &changed_ranges) {
                         output.changed_ranges.push(new.byte_range);
                     }
+                    output.records.push(InvalidationRecord {
+                        status: InvalidationStatus::Affected,
+                        chunk: new.clone(),
+                        old_chunk: Some(old),
+                        reason: InvalidationReason::ContentChanged,
+                        match_strategy: MatchStrategy::StableId,
+                        confidence: new.confidence,
+                        changed_ranges: ranges_overlapping_or_exact(
+                            &new.byte_range,
+                            &output.changed_ranges,
+                        ),
+                    });
                     output.affected.push(new);
                 } else {
+                    output.records.push(InvalidationRecord {
+                        status: InvalidationStatus::Unchanged,
+                        chunk: new.clone(),
+                        old_chunk: Some(old),
+                        reason: InvalidationReason::NoChangeDetected,
+                        match_strategy: MatchStrategy::StableId,
+                        confidence: new.confidence,
+                        changed_ranges: Vec::new(),
+                    });
                     output.unchanged.push(new);
                 }
             }
             MatchResult::Removed { old } => {
+                output.records.push(InvalidationRecord {
+                    status: InvalidationStatus::Removed,
+                    chunk: old.clone(),
+                    old_chunk: Some(old.clone()),
+                    reason: InvalidationReason::RemovedChunk,
+                    match_strategy: MatchStrategy::Unmatched,
+                    confidence: old.confidence,
+                    changed_ranges: Vec::new(),
+                });
                 output.removed.push(old);
             }
             MatchResult::Added { new } => {
+                output.records.push(InvalidationRecord {
+                    status: InvalidationStatus::Added,
+                    chunk: new.clone(),
+                    old_chunk: None,
+                    reason: InvalidationReason::AddedChunk,
+                    match_strategy: MatchStrategy::Unmatched,
+                    confidence: new.confidence,
+                    changed_ranges: ranges_overlapping_or_exact(&new.byte_range, &changed_ranges),
+                });
                 output.added.push(new);
             }
         }
@@ -97,6 +151,15 @@ pub fn invalidate_snapshot(
                 .any(|c| c.stable_id == chunk.stable_id)
             && overlaps_any(&chunk.byte_range, &changed_ranges)
         {
+            output.records.push(InvalidationRecord {
+                status: InvalidationStatus::Affected,
+                chunk: chunk.clone(),
+                old_chunk: None,
+                reason: InvalidationReason::ChangedRangeOverlap,
+                match_strategy: MatchStrategy::TextualRangeOverlap,
+                confidence: chunk.confidence,
+                changed_ranges: ranges_overlapping_or_exact(&chunk.byte_range, &changed_ranges),
+            });
             output.affected.push(chunk.clone());
         }
     }
@@ -155,6 +218,19 @@ pub fn invalidate_edits(
     for chunk in &mut output.added {
         chunk.confidence = Confidence::Medium;
     }
+    for chunk in &mut output.removed {
+        chunk.confidence = Confidence::Medium;
+    }
+    for record in &mut output.records {
+        record.confidence = Confidence::Medium;
+        record.chunk.confidence = Confidence::Medium;
+        if let Some(old_chunk) = &mut record.old_chunk {
+            old_chunk.confidence = Confidence::Medium;
+        }
+        if record.match_strategy == MatchStrategy::TextualRangeOverlap {
+            record.match_strategy = MatchStrategy::EditRangeOverlap;
+        }
+    }
 
     output.diagnostics.push(Diagnostic::info(
         "edit-stream invalidation: confidence downgraded to Medium because incremental parse may miss some changes",
@@ -167,6 +243,71 @@ fn overlaps_any(range: &ByteRange, ranges: &[ByteRange]) -> bool {
     ranges
         .iter()
         .any(|r| range.start < r.end && range.end > r.start)
+}
+
+fn snapshot_changed_ranges(old_source: &[u8], new_source: &[u8]) -> Vec<ByteRange> {
+    if old_source == new_source {
+        return Vec::new();
+    }
+
+    let (Ok(old_text), Ok(new_text)) = (
+        std::str::from_utf8(old_source),
+        std::str::from_utf8(new_source),
+    ) else {
+        return vec![ByteRange {
+            start: 0,
+            end: new_source.len(),
+        }];
+    };
+
+    let line_offsets = line_start_offsets(new_text);
+    let diff = TextDiff::from_lines(old_text, new_text);
+    let mut ranges = Vec::new();
+
+    for op in diff.ops() {
+        if op.tag() == DiffTag::Equal {
+            continue;
+        }
+
+        let new_range = op.new_range();
+        let start = line_offsets
+            .get(new_range.start)
+            .copied()
+            .unwrap_or(new_source.len());
+        let end = line_offsets
+            .get(new_range.end)
+            .copied()
+            .unwrap_or(new_source.len());
+
+        ranges.push(ByteRange { start, end });
+    }
+
+    ranges
+}
+
+fn line_start_offsets(text: &str) -> Vec<usize> {
+    let mut offsets = vec![0];
+    for (index, byte) in text.bytes().enumerate() {
+        if byte == b'\n' {
+            offsets.push(index + 1);
+        }
+    }
+    offsets.push(text.len());
+    offsets
+}
+
+fn ranges_overlapping_or_exact(range: &ByteRange, ranges: &[ByteRange]) -> Vec<ByteRange> {
+    let overlaps: Vec<_> = ranges
+        .iter()
+        .copied()
+        .filter(|changed| range.start < changed.end && range.end > changed.start)
+        .collect();
+
+    if overlaps.is_empty() {
+        vec![*range]
+    } else {
+        overlaps
+    }
 }
 
 /// Compare two source slices (within given byte ranges) for equality,
@@ -227,6 +368,10 @@ mod tests {
             output.removed,
             output.unchanged
         );
+        assert_eq!(output.records.len(), 1);
+        assert_eq!(output.records[0].status, InvalidationStatus::Affected);
+        assert_eq!(output.records[0].reason, InvalidationReason::ContentChanged);
+        assert_eq!(output.records[0].match_strategy, MatchStrategy::StableId);
         assert!(output.added.is_empty());
         assert!(output.removed.is_empty());
     }
@@ -367,6 +512,14 @@ mod tests {
             output.removed
         );
         assert_eq!(output.removed.len(), 1, "expected 1 removed chunk");
+        assert_eq!(output.added[0].confidence, Confidence::Medium);
+        assert_eq!(output.removed[0].confidence, Confidence::Medium);
+        assert!(
+            output
+                .records
+                .iter()
+                .all(|record| record.confidence == Confidence::Medium)
+        );
         assert!(
             output.affected.is_empty(),
             "expected 0 affected chunks when name changes, got affected={:?}",
@@ -438,6 +591,10 @@ mod tests {
             output.added,
             output.removed,
             output.unchanged
+        );
+        assert!(
+            !output.changed_ranges.is_empty(),
+            "expected textual snapshot ranges for literal-only change"
         );
     }
 }

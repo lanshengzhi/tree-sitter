@@ -219,4 +219,77 @@ mod tests {
         assert!(bundle.omitted.is_empty());
         assert_eq!(bundle.total_included_tokens, 0);
     }
+
+    #[test]
+    fn bundle_output_snapshot_stability() {
+        let chunks = vec![dummy_chunk("foo", 100), dummy_chunk("bar", 500)];
+        let opts = BundleOptions {
+            max_tokens: 250,
+            max_chunks: 100,
+        };
+        let bundle = bundle_chunks(chunks, &opts);
+
+        let json = serde_json::to_string_pretty(&bundle).unwrap();
+
+        assert_eq!(
+            json,
+            r#"{
+  "included": [
+    {
+      "id": {
+        "path": "test.rs",
+        "kind": "function_item",
+        "name": "foo",
+        "anchor_byte": 0
+      },
+      "stable_id": "named:foo",
+      "kind": "function_item",
+      "name": "foo",
+      "byte_range": {
+        "start": 0,
+        "end": 400
+      },
+      "estimated_tokens": 100,
+      "confidence": "exact"
+    }
+  ],
+  "omitted": [
+    {
+      "chunk": {
+        "id": {
+          "path": "test.rs",
+          "kind": "function_item",
+          "name": "bar",
+          "anchor_byte": 0
+        },
+        "stable_id": "named:bar",
+        "kind": "function_item",
+        "name": "bar",
+        "byte_range": {
+          "start": 0,
+          "end": 2000
+        },
+        "estimated_tokens": 500,
+        "confidence": "exact"
+      },
+      "reason": "over_budget"
+    }
+  ],
+  "total_included_tokens": 100,
+  "total_omitted_tokens": 500,
+  "budget": 250,
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "general_info",
+      "message": "1 chunk(s) omitted due to budget (100/250 tokens used)"
+    }
+  ]
+}"#
+        );
+
+        let deserialized: BundleOutput = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.included.len(), 1);
+        assert_eq!(deserialized.omitted.len(), 1);
+    }
 }
