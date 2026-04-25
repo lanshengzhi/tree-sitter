@@ -8,6 +8,18 @@ status: draft
 
 # RFC: tree-sitter-context
 
+## 当前实现状态
+
+这个分支已经包含实验性实现：
+
+- `crates/context/` 提供 `tree-sitter-context` library prototype。
+- `tree-sitter context` / `tree-sitter ctx` 是当前集成到主 CLI 的实验命令。
+- `--old <path>` 触发 old/new snapshot invalidation；没有 `--old` 时输出当前文件 chunks。
+- `--symbols` 会通过 tags queries 附加 definitions / references。
+- `--budget <TOKENS>` 已在 CLI 参数中保留；budgeted bundle 逻辑目前在 crate 层实现，尚未接入 `tree-sitter context` 输出。
+- 当前 JSON schema version 是 `0.1.0`。
+- 下文里的 `ts-context` 是 RFC 中的目标命令名；本分支当前可运行入口是 `cargo run -p tree-sitter-cli -- context ...` 或构建后的 `tree-sitter context ...`。
+
 `tree-sitter-context` 是一个面向 LLM coding agents 的底层代码上下文引擎。
 
 它不做完整 agent，不做 code review 产品，也不在第一版提供 MCP daemon。它只负责一件事：把源码通过 tree-sitter 变成小、准、可增量更新的上下文单元，让 Aider、Graphify、Code Review Graph、Claude Code、Cursor、Codex 这类上层工具少读无关代码。
