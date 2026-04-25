@@ -27,5 +27,6 @@ user's fork. If remote configuration is ambiguous, stop and ask before pushing.
 
 - [README.md](README.md) - project overview and public links.
 - [CONTRIBUTING.md](CONTRIBUTING.md) - contributor guide entry point.
-- [docs/ts.md](docs/ts.md) - experimental `tree-sitter-context` RFC and review record.
-- [TODOS.md](TODOS.md) - deferred follow-up work from the context RFC review.
+- [docs/plans/tree-sitter-context-rfc-2026-04-24.md](docs/plans/tree-sitter-context-rfc-2026-04-24.md) - experimental `tree-sitter-context` RFC and plan record.
+- [docs/solutions/](docs/solutions/) - compound-engineering knowledge store for documented solutions and review checkpoints, organized by category with YAML frontmatter. Check relevant entries before related work.
+- [docs/plans/tree-sitter-context-follow-up-plan-2026-04-25.md](docs/plans/tree-sitter-context-follow-up-plan-2026-04-25.md) - deferred follow-up work from the context RFC and branch review.
