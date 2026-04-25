@@ -22,3 +22,10 @@ Key routing rules:
 
 Never push to `upstream`. Only push branches to `origin`, which must be the
 user's fork. If remote configuration is ambiguous, stop and ask before pushing.
+
+## Project docs
+
+- [README.md](README.md) - project overview and public links.
+- [CONTRIBUTING.md](CONTRIBUTING.md) - contributor guide entry point.
+- [docs/ts.md](docs/ts.md) - experimental `tree-sitter-context` RFC and review record.
+- [TODOS.md](TODOS.md) - deferred follow-up work from the context RFC review.
