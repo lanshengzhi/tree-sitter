@@ -2040,6 +2040,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "similar",
  "tree-sitter",
  "tree-sitter-rust",
  "tree-sitter-tags",

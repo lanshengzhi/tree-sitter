@@ -5,8 +5,13 @@ use std::{
 };
 
 use anyhow::{Context as _, Result, anyhow};
+use serde::Serialize;
 use tree_sitter::Parser;
-use tree_sitter_context::schema::ContextOutput;
+use tree_sitter_context::{
+    bundle::{BundleOptions, bundle_chunks},
+    chunk::ChunkOptions,
+    schema::{ContextOutput, Diagnostic},
+};
 use tree_sitter_loader::Loader;
 
 pub struct ContextOptions {
@@ -16,15 +21,29 @@ pub struct ContextOptions {
     pub budget: Option<usize>,
 }
 
-pub fn run(loader: &mut Loader, path: &Path, opts: &ContextOptions) -> Result<()> {
+pub fn run(loader: &Loader, path: &Path, opts: &ContextOptions) -> Result<()> {
+    if let Some(output) = run_to_string(loader, path, opts)? {
+        let stdout = io::stdout();
+        let mut stdout = stdout.lock();
+        stdout.write_all(output.as_bytes())?;
+    }
+
+    Ok(())
+}
+
+pub fn run_to_string(
+    loader: &Loader,
+    path: &Path,
+    opts: &ContextOptions,
+) -> Result<Option<String>> {
     if let Some(old_path) = &opts.old_path {
-        run_invalidate_snapshot(loader, old_path, path, opts)
+        render_invalidate_snapshot(loader, old_path, path, opts)
     } else {
-        run_chunks(loader, path, opts)
+        render_chunks(loader, path, opts)
     }
 }
 
-fn run_chunks(loader: &mut Loader, path: &Path, opts: &ContextOptions) -> Result<()> {
+fn render_chunks(loader: &Loader, path: &Path, opts: &ContextOptions) -> Result<Option<String>> {
     let source = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
 
     let (language, language_config) = loader
@@ -38,10 +57,29 @@ fn run_chunks(loader: &mut Loader, path: &Path, opts: &ContextOptions) -> Result
         .parse(&source, None)
         .ok_or_else(|| anyhow!("failed to parse {}", path.display()))?;
 
+    let chunk_result =
+        tree_sitter_context::chunk::chunks_for_tree(&tree, path, &source, &ChunkOptions::default());
+
+    if let Some(max_tokens) = opts.budget {
+        let mut bundle = bundle_chunks(
+            chunk_result.chunks,
+            &BundleOptions {
+                max_tokens,
+                ..Default::default()
+            },
+        );
+        bundle.diagnostics.extend(chunk_result.diagnostics);
+        if opts.symbols {
+            bundle.diagnostics.push(Diagnostic::warn(
+                "symbols are omitted from budgeted context output",
+            ));
+        }
+
+        return render_json(&bundle, opts.quiet);
+    }
+
     let mut output = ContextOutput::new("0.1.0").with_source_path(path);
 
-    let chunk_result =
-        tree_sitter_context::chunk::chunks_for_tree(&tree, path, &source, &Default::default());
     for chunk in chunk_result.chunks {
         output.push_chunk(chunk);
     }
@@ -77,19 +115,15 @@ fn run_chunks(loader: &mut Loader, path: &Path, opts: &ContextOptions) -> Result
         ));
     }
 
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
-    writeln!(&mut stdout, "{}", serde_json::to_string_pretty(&output)?)?;
-
-    Ok(())
+    render_json(&output, opts.quiet)
 }
 
-fn run_invalidate_snapshot(
-    loader: &mut Loader,
+fn render_invalidate_snapshot(
+    loader: &Loader,
     old_path: &Path,
     new_path: &Path,
-    _opts: &ContextOptions,
-) -> Result<()> {
+    opts: &ContextOptions,
+) -> Result<Option<String>> {
     let old_source =
         fs::read(old_path).with_context(|| format!("failed to read {}", old_path.display()))?;
     let new_source =
@@ -118,9 +152,82 @@ fn run_invalidate_snapshot(
         new_path,
     )?;
 
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
-    writeln!(&mut stdout, "{}", serde_json::to_string_pretty(&output)?)?;
+    render_json(&output, opts.quiet)
+}
 
-    Ok(())
+fn render_json(value: &impl Serialize, quiet: bool) -> Result<Option<String>> {
+    if quiet {
+        Ok(None)
+    } else {
+        Ok(Some(format!("{}\n", serde_json::to_string_pretty(value)?)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tree_sitter_context::{
+        bundle::BundleOutput,
+        identity::StableId,
+        schema::{ByteRange, ChunkId, ChunkRecord, Confidence},
+    };
+
+    #[test]
+    fn render_json_returns_none_when_quiet() {
+        let output = ContextOutput::new("0.1.0");
+        assert!(render_json(&output, true).unwrap().is_none());
+    }
+
+    #[test]
+    fn render_json_pretty_prints_with_trailing_newline() {
+        let mut output = ContextOutput::new("0.1.0").with_source_path("src/lib.rs");
+        output.push_chunk(chunk("src/lib.rs", "function_item", Some("parse"), 10));
+
+        let json = render_json(&output, false).unwrap().unwrap();
+
+        assert!(json.ends_with('\n'));
+        assert!(json.contains("  \"chunks\": ["));
+        assert!(json.contains("\"total_chunks\": 1"));
+        assert!(json.contains("\"source_path\": \"src/lib.rs\""));
+    }
+
+    #[test]
+    fn render_json_preserves_budget_output_contract() {
+        let output = BundleOutput {
+            included: vec![chunk("src/lib.rs", "function_item", Some("small"), 8)],
+            omitted: Vec::new(),
+            total_included_tokens: 8,
+            total_omitted_tokens: 0,
+            budget: 16,
+            diagnostics: vec![Diagnostic::warn(
+                "symbols are omitted from budgeted context output",
+            )],
+        };
+
+        let json = render_json(&output, false).unwrap().unwrap();
+
+        assert!(json.contains("\"included\""));
+        assert!(json.contains("\"budget\": 16"));
+        assert!(json.contains("\"symbols are omitted from budgeted context output\""));
+        assert!(!json.contains("\"chunks\""));
+    }
+
+    fn chunk(path: &str, kind: &str, name: Option<&str>, tokens: usize) -> ChunkRecord {
+        ChunkRecord {
+            id: ChunkId {
+                path: path.into(),
+                kind: kind.into(),
+                name: name.map(str::to_owned),
+                anchor_byte: 0,
+            },
+            stable_id: StableId(format!("stable:{kind}:{}", name.unwrap_or("_"))),
+            kind: kind.into(),
+            name: name.map(str::to_owned),
+            byte_range: ByteRange { start: 0, end: 10 },
+            estimated_tokens: tokens,
+            confidence: Confidence::Exact,
+            depth: 0,
+            parent: None,
+        }
+    }
 }

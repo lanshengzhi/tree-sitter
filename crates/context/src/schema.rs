@@ -30,13 +30,29 @@ pub enum DiagnosticLevel {
     Error,
 }
 
+/// Stable machine-readable diagnostic code.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticCode {
+    GeneralInfo,
+    GeneralWarning,
+    GeneralError,
+}
+
 /// A diagnostic message attached to engine output.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Diagnostic {
     pub level: DiagnosticLevel,
+    pub code: DiagnosticCode,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 impl Diagnostic {
@@ -44,8 +60,12 @@ impl Diagnostic {
     pub fn info(message: impl Into<String>) -> Self {
         Self {
             level: DiagnosticLevel::Info,
+            code: DiagnosticCode::GeneralInfo,
             message: message.into(),
+            cause: None,
+            fix: None,
             context: None,
+            source: None,
         }
     }
 
@@ -53,8 +73,12 @@ impl Diagnostic {
     pub fn warn(message: impl Into<String>) -> Self {
         Self {
             level: DiagnosticLevel::Warning,
+            code: DiagnosticCode::GeneralWarning,
             message: message.into(),
+            cause: None,
+            fix: None,
             context: None,
+            source: None,
         }
     }
 
@@ -62,14 +86,42 @@ impl Diagnostic {
     pub fn error(message: impl Into<String>) -> Self {
         Self {
             level: DiagnosticLevel::Error,
+            code: DiagnosticCode::GeneralError,
             message: message.into(),
+            cause: None,
+            fix: None,
             context: None,
+            source: None,
         }
+    }
+
+    #[must_use]
+    pub const fn with_code(mut self, code: DiagnosticCode) -> Self {
+        self.code = code;
+        self
+    }
+
+    #[must_use]
+    pub fn with_cause(mut self, cause: impl Into<String>) -> Self {
+        self.cause = Some(cause.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_fix(mut self, fix: impl Into<String>) -> Self {
+        self.fix = Some(fix.into());
+        self
     }
 
     #[must_use]
     pub fn with_context(mut self, context: impl Into<String>) -> Self {
         self.context = Some(context.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_source(mut self, source: impl Into<String>) -> Self {
+        self.source = Some(source.into());
         self
     }
 }
@@ -167,6 +219,53 @@ pub struct SymbolRecord {
     pub confidence: Confidence,
 }
 
+/// Classification assigned to a chunk during invalidation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InvalidationStatus {
+    Affected,
+    Added,
+    Removed,
+    Unchanged,
+}
+
+/// Evidence used to match or classify a chunk during invalidation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchStrategy {
+    StableId,
+    ContentComparison,
+    TextualRangeOverlap,
+    EditRangeOverlap,
+    Unmatched,
+}
+
+/// Machine-readable reason for an invalidation classification.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InvalidationReason {
+    ChangedRangeOverlap,
+    ContentChanged,
+    AddedChunk,
+    RemovedChunk,
+    NoChangeDetected,
+    DegradedMatching,
+}
+
+/// Detailed invalidation classification record.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct InvalidationRecord {
+    pub status: InvalidationStatus,
+    pub chunk: ChunkRecord,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_chunk: Option<ChunkRecord>,
+    pub reason: InvalidationReason,
+    pub match_strategy: MatchStrategy,
+    pub confidence: Confidence,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changed_ranges: Vec<ByteRange>,
+}
+
 /// Canonical output for the context engine.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ContextOutput {
@@ -179,6 +278,9 @@ pub struct ContextOutput {
 /// Output from an invalidation pass (snapshot diff or edit stream).
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct InvalidationOutput {
+    /// Detailed classification records with reason and matching metadata.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub records: Vec<InvalidationRecord>,
     /// Chunks that overlap a changed range.
     pub affected: Vec<ChunkRecord>,
     /// Chunks present in the new snapshot but not the old.
@@ -254,6 +356,16 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_code_serializes_to_snake_case() {
+        let json = serde_json::to_string(&DiagnosticCode::GeneralInfo).unwrap();
+        assert_eq!(json, "\"general_info\"");
+        let json = serde_json::to_string(&DiagnosticCode::GeneralWarning).unwrap();
+        assert_eq!(json, "\"general_warning\"");
+        let json = serde_json::to_string(&DiagnosticCode::GeneralError).unwrap();
+        assert_eq!(json, "\"general_error\"");
+    }
+
+    #[test]
     fn context_output_snapshot_stability() {
         let mut output = ContextOutput::new("0.1.0").with_source_path("src/lib.rs");
         output.push_chunk(ChunkRecord {
@@ -276,21 +388,44 @@ mod tests {
 
         let json = serde_json::to_string_pretty(&output).unwrap();
 
-        // Verify key fields are present and use expected naming.
-        assert!(json.contains("\"schema_version\": \"0.1.0\""));
-        assert!(json.contains("\"source_path\": \"src/lib.rs\""));
-        assert!(json.contains("\"chunks\""));
-        assert!(json.contains("\"symbols\""));
-        assert!(json.contains("\"diagnostics\""));
-        assert!(json.contains("\"meta\""));
-        assert!(json.contains("\"total_chunks\": 1"));
-        assert!(json.contains("\"total_estimated_tokens\": 3"));
-        assert!(json.contains("\"stable_id\""));
-        assert!(json.contains("\"byte_range\""));
-        assert!(json.contains("\"estimated_tokens\""));
-        assert!(json.contains("\"confidence\": \"exact\""));
-        assert!(json.contains("\"level\": \"info\""));
-        assert!(json.contains("\"message\": \"test diagnostic\""));
+        assert_eq!(
+            json,
+            r#"{
+  "chunks": [
+    {
+      "id": {
+        "path": "src/lib.rs",
+        "kind": "function_item",
+        "name": "foo",
+        "anchor_byte": 0
+      },
+      "stable_id": "named:test",
+      "kind": "function_item",
+      "name": "foo",
+      "byte_range": {
+        "start": 0,
+        "end": 11
+      },
+      "estimated_tokens": 3,
+      "confidence": "exact"
+    }
+  ],
+  "symbols": [],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "general_info",
+      "message": "test diagnostic"
+    }
+  ],
+  "meta": {
+    "schema_version": "0.1.0",
+    "source_path": "src/lib.rs",
+    "total_chunks": 1,
+    "total_estimated_tokens": 3
+  }
+}"#
+        );
 
         // Round-trip check.
         let deserialized: ContextOutput = serde_json::from_str(&json).unwrap();
@@ -301,23 +436,33 @@ mod tests {
 
     #[test]
     fn invalidation_output_snapshot_stability() {
-        let output = InvalidationOutput {
-            affected: vec![ChunkRecord {
-                id: ChunkId {
-                    path: PathBuf::from("src/lib.rs"),
-                    kind: "function_item".to_string(),
-                    name: Some("foo".to_string()),
-                    anchor_byte: 0,
-                },
-                stable_id: StableId("named:test".to_string()),
+        let chunk = ChunkRecord {
+            id: ChunkId {
+                path: PathBuf::from("src/lib.rs"),
                 kind: "function_item".to_string(),
                 name: Some("foo".to_string()),
-                byte_range: ByteRange { start: 0, end: 11 },
-                estimated_tokens: 3,
+                anchor_byte: 0,
+            },
+            stable_id: StableId("named:test".to_string()),
+            kind: "function_item".to_string(),
+            name: Some("foo".to_string()),
+            byte_range: ByteRange { start: 0, end: 11 },
+            estimated_tokens: 3,
+            confidence: Confidence::Medium,
+            depth: 0,
+            parent: None,
+        };
+        let output = InvalidationOutput {
+            records: vec![InvalidationRecord {
+                status: InvalidationStatus::Affected,
+                chunk: chunk.clone(),
+                old_chunk: None,
+                reason: InvalidationReason::ChangedRangeOverlap,
+                match_strategy: MatchStrategy::TextualRangeOverlap,
                 confidence: Confidence::Medium,
-                depth: 0,
-                parent: None,
+                changed_ranges: vec![ByteRange { start: 0, end: 11 }],
             }],
+            affected: vec![chunk],
             added: vec![],
             removed: vec![],
             unchanged: vec![],
@@ -333,17 +478,127 @@ mod tests {
 
         let json = serde_json::to_string_pretty(&output).unwrap();
 
-        assert!(json.contains("\"affected\""));
-        assert!(json.contains("\"added\""));
-        assert!(json.contains("\"removed\""));
-        assert!(json.contains("\"unchanged\""));
-        assert!(json.contains("\"changed_ranges\""));
-        assert!(json.contains("\"diagnostics\""));
-        assert!(json.contains("\"meta\""));
-        assert!(json.contains("\"confidence\": \"medium\""));
+        assert_eq!(
+            json,
+            r#"{
+  "records": [
+    {
+      "status": "affected",
+      "chunk": {
+        "id": {
+          "path": "src/lib.rs",
+          "kind": "function_item",
+          "name": "foo",
+          "anchor_byte": 0
+        },
+        "stable_id": "named:test",
+        "kind": "function_item",
+        "name": "foo",
+        "byte_range": {
+          "start": 0,
+          "end": 11
+        },
+        "estimated_tokens": 3,
+        "confidence": "medium"
+      },
+      "reason": "changed_range_overlap",
+      "match_strategy": "textual_range_overlap",
+      "confidence": "medium",
+      "changed_ranges": [
+        {
+          "start": 0,
+          "end": 11
+        }
+      ]
+    }
+  ],
+  "affected": [
+    {
+      "id": {
+        "path": "src/lib.rs",
+        "kind": "function_item",
+        "name": "foo",
+        "anchor_byte": 0
+      },
+      "stable_id": "named:test",
+      "kind": "function_item",
+      "name": "foo",
+      "byte_range": {
+        "start": 0,
+        "end": 11
+      },
+      "estimated_tokens": 3,
+      "confidence": "medium"
+    }
+  ],
+  "added": [],
+  "removed": [],
+  "unchanged": [],
+  "changed_ranges": [
+    {
+      "start": 0,
+      "end": 11
+    }
+  ],
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "general_info",
+      "message": "1 affected chunk(s)"
+    }
+  ],
+  "meta": {
+    "schema_version": "0.1.0",
+    "source_path": "src/lib.rs",
+    "total_chunks": 1,
+    "total_estimated_tokens": 3
+  }
+}"#
+        );
 
         let deserialized: InvalidationOutput = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.records.len(), 1);
         assert_eq!(deserialized.affected.len(), 1);
         assert_eq!(deserialized.changed_ranges.len(), 1);
+    }
+
+    #[test]
+    fn symbol_record_snapshot_stability() {
+        let symbol = SymbolRecord {
+            name: "foo".to_string(),
+            syntax_type: "function".to_string(),
+            byte_range: ByteRange { start: 0, end: 11 },
+            lines: ByteRange { start: 0, end: 1 },
+            docs: Some("Example docs".to_string()),
+            is_definition: true,
+            path: PathBuf::from("src/lib.rs"),
+            confidence: Confidence::Exact,
+        };
+
+        let json = serde_json::to_string_pretty(&symbol).unwrap();
+
+        assert_eq!(
+            json,
+            r#"{
+  "name": "foo",
+  "syntax_type": "function",
+  "byte_range": {
+    "start": 0,
+    "end": 11
+  },
+  "lines": {
+    "start": 0,
+    "end": 1
+  },
+  "docs": "Example docs",
+  "is_definition": true,
+  "path": "src/lib.rs",
+  "confidence": "exact"
+}"#
+        );
+
+        let deserialized: SymbolRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.name, "foo");
+        assert!(deserialized.is_definition);
     }
 }
