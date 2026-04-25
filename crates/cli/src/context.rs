@@ -40,24 +40,29 @@ fn run_chunks(loader: &mut Loader, path: &Path, opts: &ContextOptions) -> Result
 
     let mut output = ContextOutput::new("0.1.0").with_source_path(path);
 
-    let chunks =
+    let chunk_result =
         tree_sitter_context::chunk::chunks_for_tree(&tree, path, &source, &Default::default());
-    for chunk in chunks {
+    for chunk in chunk_result.chunks {
         output.push_chunk(chunk);
+    }
+    for diagnostic in chunk_result.diagnostics {
+        output.push_diagnostic(diagnostic);
     }
 
     if opts.symbols {
         if let Some(tags_config) = language_config.tags_config(language)? {
             let symbol_opts = tree_sitter_context::symbols::SymbolOptions::default();
-            let symbols = tree_sitter_context::symbols::symbols_for_tree(
-                &tree,
+            let symbol_result = tree_sitter_context::symbols::symbols_for_tree(
                 path,
                 &source,
                 tags_config,
                 &symbol_opts,
             );
-            for symbol in symbols {
+            for symbol in symbol_result.symbols {
                 output.symbols.push(symbol);
+            }
+            for diagnostic in symbol_result.diagnostics {
+                output.push_diagnostic(diagnostic);
             }
         } else {
             output.push_diagnostic(tree_sitter_context::schema::Diagnostic::warn(

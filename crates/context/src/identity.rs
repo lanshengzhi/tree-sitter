@@ -19,6 +19,7 @@ pub struct StableId(pub String);
 
 impl StableId {
     /// Compute a stable identifier from chunk metadata and source bytes.
+    #[must_use]
     pub fn compute(
         path: &Path,
         kind: &str,
@@ -42,6 +43,7 @@ impl StableId {
 }
 
 /// Result of matching a chunk across two parse runs.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MatchResult {
     /// The chunk exists in both old and new with the same stable identity.
@@ -55,6 +57,7 @@ pub enum MatchResult {
 /// Match chunks from an old snapshot against chunks from a new snapshot.
 ///
 /// Returns one `MatchResult` per unique stable identity across both sets.
+#[must_use]
 pub fn match_chunks(old: &[ChunkRecord], new: &[ChunkRecord]) -> Vec<MatchResult> {
     use std::collections::HashMap;
 
@@ -68,12 +71,12 @@ pub fn match_chunks(old: &[ChunkRecord], new: &[ChunkRecord]) -> Vec<MatchResult
         .collect();
 
     let mut results = Vec::new();
-    let mut seen = HashMap::new();
+    let mut seen = std::collections::HashSet::new();
 
     // Find unchanged and removed
     for (id, old_chunk) in &old_by_id {
         if let Some(new_chunk) = new_by_id.get(id) {
-            seen.insert(id.clone(), ());
+            seen.insert(id.clone());
             results.push(MatchResult::Unchanged {
                 old: old_chunk.clone(),
                 new: new_chunk.clone(),
@@ -87,7 +90,7 @@ pub fn match_chunks(old: &[ChunkRecord], new: &[ChunkRecord]) -> Vec<MatchResult
 
     // Find added
     for (id, new_chunk) in &new_by_id {
-        if !seen.contains_key(id) {
+        if !seen.contains(id) {
             results.push(MatchResult::Added {
                 new: new_chunk.clone(),
             });
@@ -116,6 +119,8 @@ mod tests {
             estimated_tokens: 2,
             confidence: crate::schema::Confidence::Exact,
             stable_id,
+            depth: 0,
+            parent: None,
         }
     }
 
