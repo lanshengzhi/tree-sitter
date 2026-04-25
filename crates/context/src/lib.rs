@@ -14,6 +14,7 @@ pub use chunk::{ChunkOptions, ChunkOutput, chunks_for_tree};
 pub use identity::{StableId, match_chunks};
 pub use invalidation::{invalidate_edits, invalidate_snapshot};
 pub use schema::{
-    ByteRange, ChunkId, ChunkRecord, Confidence, ContextOutput, Diagnostic, DiagnosticLevel,
-    InvalidationOutput, OutputMeta, SymbolRecord,
+    ByteRange, ChunkId, ChunkRecord, Confidence, ContextOutput, Diagnostic, DiagnosticCode,
+    DiagnosticLevel, InvalidationOutput, InvalidationReason, InvalidationRecord,
+    InvalidationStatus, MatchStrategy, OutputMeta, SymbolRecord,
 };

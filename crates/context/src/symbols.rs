@@ -73,7 +73,7 @@ pub fn symbols_for_tree(
             }
         };
 
-        symbols.push(tag_to_record(&tag, &path, source, tags_config));
+        symbols.push(tag_to_record(&tag, &path, source, tags_config, opts));
     }
 
     SymbolsOutput {
@@ -87,6 +87,7 @@ fn tag_to_record(
     path: &Path,
     source: &[u8],
     config: &TagsConfiguration,
+    opts: &SymbolOptions,
 ) -> SymbolRecord {
     let name = std::str::from_utf8(&source[tag.name_range.clone()])
         .unwrap_or("")
@@ -99,15 +100,83 @@ fn tag_to_record(
         syntax_type,
         byte_range: ByteRange::from(tag.range.clone()),
         lines: ByteRange::from(tag.line_range.clone()),
-        docs: tag.docs.clone(),
+        docs: tag
+            .docs
+            .as_ref()
+            .map(|docs| truncate_docs(docs, opts.max_docs_len)),
         is_definition: tag.is_definition,
         path: path.to_path_buf(),
         confidence: Confidence::Exact,
     }
 }
 
+fn truncate_docs(docs: &str, max_len: usize) -> String {
+    docs.chars().take(max_len).collect()
+}
+
 #[cfg(test)]
 mod tests {
-    // Symbol tests require a compiled grammar with tags.scm/locals.scm.
-    // Coverage documented for integration testing.
+    use super::*;
+
+    const RUST_TAG_QUERY: &str = r#"
+(
+  (line_comment)* @doc .
+  (function_item
+    name: (identifier) @name) @definition.function
+  (#select-adjacent! @doc @definition.function)
+  (#strip! @doc "(^///\\s*)")
+)
+"#;
+
+    fn rust_tags_config() -> TagsConfiguration {
+        let raw = unsafe { tree_sitter_rust::LANGUAGE.into_raw()() };
+        let language: tree_sitter::Language = unsafe { std::mem::transmute(raw) };
+        TagsConfiguration::new(language, RUST_TAG_QUERY, "").unwrap()
+    }
+
+    #[test]
+    fn extracts_symbols_with_truncated_docs() {
+        let source = br"
+/// Documented function with long docs
+fn documented() {}
+";
+        let config = rust_tags_config();
+        let output = symbols_for_tree(
+            "test.rs",
+            source,
+            &config,
+            &SymbolOptions {
+                max_docs_len: 10,
+                max_symbols: 100,
+            },
+        );
+
+        assert!(output.diagnostics.is_empty());
+        assert_eq!(output.symbols.len(), 1);
+        assert_eq!(output.symbols[0].name, "documented");
+        assert_eq!(output.symbols[0].docs.as_deref(), Some("Documented"));
+    }
+
+    #[test]
+    fn stops_at_max_symbols_with_diagnostic() {
+        let source = b"fn one() {}\nfn two() {}\n";
+        let config = rust_tags_config();
+        let output = symbols_for_tree(
+            "test.rs",
+            source,
+            &config,
+            &SymbolOptions {
+                max_docs_len: 100,
+                max_symbols: 1,
+            },
+        );
+
+        assert_eq!(output.symbols.len(), 1);
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("symbol limit"))
+        );
+    }
 }

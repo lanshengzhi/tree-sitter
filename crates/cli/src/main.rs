@@ -1992,11 +1992,15 @@ impl Tags {
 }
 
 impl ContextCmd {
-    fn run(self, mut loader: loader::Loader, _current_dir: &Path) -> Result<()> {
+    fn run(self, mut loader: loader::Loader, current_dir: &Path) -> Result<()> {
         let config = Config::load(self.config_path)?;
         let loader_config = config.get()?;
         loader.find_all_languages(&loader_config)?;
         loader.force_rebuild(self.rebuild || self.grammar_path.is_some());
+        if let Some(grammar_path) = &self.grammar_path {
+            let grammar_path = current_dir.join(grammar_path);
+            loader.find_language_configurations_at_path(&grammar_path, true)?;
+        }
 
         let options = tree_sitter_cli::context::ContextOptions {
             quiet: self.quiet,
@@ -2004,7 +2008,7 @@ impl ContextCmd {
             symbols: self.symbols,
             budget: self.budget,
         };
-        tree_sitter_cli::context::run(&mut loader, &self.path, &options)?;
+        tree_sitter_cli::context::run(&loader, &self.path, &options)?;
 
         Ok(())
     }

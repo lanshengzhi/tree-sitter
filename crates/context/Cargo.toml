@@ -5,6 +5,7 @@ description            = "Library for extracting token-efficient code context fr
 authors.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
+readme                 = "README.md"
 homepage.workspace     = true
 repository.workspace   = true
 documentation          = "https://docs.rs/tree-sitter-context"
@@ -23,6 +24,7 @@ anyhow.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+similar.workspace = true
 tree-sitter.workspace = true
 tree-sitter-tags.workspace = true
 
