@@ -6,7 +6,9 @@ pub mod bundle;
 pub mod chunk;
 pub mod identity;
 pub mod invalidation;
+pub mod protocol;
 pub mod schema;
+pub mod sexpr;
 pub mod symbols;
 
 pub use bundle::{BundleOptions, BundleOutput, OmissionReason, bundle_chunks};

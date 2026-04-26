@@ -27,6 +27,7 @@ serde_json.workspace = true
 similar.workspace = true
 tree-sitter.workspace = true
 tree-sitter-tags.workspace = true
+ts-rs.workspace = true
 
 [dev-dependencies]
 tree-sitter-rust = "0.24.2"
