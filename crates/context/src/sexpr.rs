@@ -310,6 +310,129 @@ fn escape_string(s: &str) -> String {
     result
 }
 
+/// Serialize an orientation block to canonical S-expression bytes.
+pub fn orientation_to_sexpr(block: &crate::orientation::OrientationBlock) -> std::io::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    orientation_to_sexpr_inner(&mut buf, block, 0)?;
+    buf.push(b'\n');
+    Ok(buf)
+}
+
+fn orientation_to_sexpr_inner(
+    w: &mut impl std::io::Write,
+    block: &crate::orientation::OrientationBlock,
+    depth: usize,
+) -> std::io::Result<()> {
+    indent(w, depth)?;
+    write!(w, "(orientation")?;
+    write!(w, "\n")?;
+
+    indent(w, depth + 1)?;
+    write!(
+        w,
+        "(schema_version {})",
+        escape_string(&block.schema_version)
+    )?;
+    write!(w, "\n")?;
+
+    indent(w, depth + 1)?;
+    write!(
+        w,
+        "(graph_snapshot_id {})",
+        escape_string(&block.graph_snapshot_id.0)
+    )?;
+    write!(w, "\n")?;
+
+    // Stats
+    indent(w, depth + 1)?;
+    write!(w, "(stats")?;
+    write!(w, "\n")?;
+    indent(w, depth + 2)?;
+    write!(w, "(file_count {})", block.stats.file_count)?;
+    write!(w, "\n")?;
+    indent(w, depth + 2)?;
+    write!(w, "(symbol_count {})", block.stats.symbol_count)?;
+    write!(w, "\n")?;
+    indent(w, depth + 2)?;
+    write!(w, "(language_count {})", block.stats.language_count)?;
+    write!(w, "\n")?;
+    indent(w, depth + 2)?;
+    write!(w, "(edge_count {})", block.stats.edge_count)?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, ")")?;
+    write!(w, "\n")?;
+
+    // Top referenced
+    indent(w, depth + 1)?;
+    write!(w, "(top_referenced")?;
+    if block.top_referenced.is_empty() {
+        write!(w, ")")?;
+    } else {
+        for tr in &block.top_referenced {
+            write!(w, "\n")?;
+            indent(w, depth + 2)?;
+            write!(w, "((symbol_path {})", escape_string(&tr.symbol_path))?;
+            write!(w, " (path {})", escape_string(&tr.path))?;
+            write!(w, " (stable_id {})", escape_string(&tr.stable_id))?;
+            write!(w, " (inbound_refs {}))", tr.inbound_refs)?;
+        }
+        write!(w, "\n")?;
+        indent(w, depth + 1)?;
+        write!(w, ")")?;
+    }
+    write!(w, "\n")?;
+
+    // Entry points
+    indent(w, depth + 1)?;
+    write!(w, "(entry_points")?;
+    if block.entry_points.is_empty() {
+        write!(w, ")")?;
+    } else {
+        for ep in &block.entry_points {
+            write!(w, "\n")?;
+            indent(w, depth + 2)?;
+            write!(w, "((symbol_path {})", escape_string(&ep.symbol_path))?;
+            write!(w, " (path {})", escape_string(&ep.path))?;
+            write!(w, " (stable_id {}))", escape_string(&ep.stable_id))?;
+        }
+        write!(w, "\n")?;
+        indent(w, depth + 1)?;
+        write!(w, ")")?;
+    }
+    write!(w, "\n")?;
+
+    // Reserved postprocess fields
+    indent(w, depth + 1)?;
+    write!(w, "(god_nodes postprocess_unavailable)")?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(communities postprocess_unavailable)")?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(architecture_summary postprocess_unavailable)")?;
+
+    // Budget truncated
+    if let Some(trunc) = &block.budget_truncated {
+        write!(w, "\n")?;
+        indent(w, depth + 1)?;
+        write!(
+            w,
+            "(budget_truncated true (reason {}) (omitted",
+            escape_string(&trunc.reason)
+        )?;
+        for item in &trunc.omitted {
+            write!(w, " {}", escape_string(item))?;
+        }
+        write!(w, "))")?;
+    }
+
+    write!(w, "\n")?;
+    indent(w, depth)?;
+    write!(w, ")")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

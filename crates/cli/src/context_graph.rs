@@ -524,3 +524,64 @@ fn is_ignored_path(path: &Path, repo_root: &Path) -> bool {
 pub fn render_json(value: &impl Serialize) -> Result<String> {
     Ok(format!("{}\n", serde_json::to_string_pretty(value)?))
 }
+
+/// Options for orientation get.
+pub struct OrientationGetOptions {
+    pub repo_root: PathBuf,
+    pub budget: Option<usize>,
+    pub format: OrientationFormat,
+}
+
+/// Output format for orientation.
+pub enum OrientationFormat {
+    Sexpr,
+    Json,
+}
+
+/// Result of orientation get.
+pub struct OrientationGetResult {
+    pub bytes: Vec<u8>,
+    pub format: OrientationFormat,
+}
+
+/// Get the current orientation block for the repo.
+pub fn orientation_get(opts: &OrientationGetOptions) -> Result<OrientationGetResult> {
+    let store = GraphStore::open(&opts.repo_root)
+        .with_context(|| format!("failed to open graph store at {}", opts.repo_root.display()))?;
+
+    let head_id = store.read_head().map_err(|e| match e {
+        tree_sitter_context::GraphError::MissingSnapshot { .. } => {
+            anyhow!("no_graph: run `tree-sitter-context graph build` first")
+        }
+        tree_sitter_context::GraphError::CorruptedSnapshot { reason, .. } => {
+            anyhow!("graph_corrupt: {}", reason)
+        }
+        tree_sitter_context::GraphError::SchemaMismatch { expected, found } => {
+            anyhow!("schema_mismatch: expected={}, found={}", expected, found)
+        }
+        e => anyhow!("graph_corrupt: {}", e),
+    })?;
+
+    let snapshot = store
+        .read_snapshot(&head_id)
+        .map_err(|e| anyhow!("graph_corrupt: failed to read snapshot: {}", e))?;
+
+    let block = tree_sitter_context::build_orientation(&snapshot, opts.budget);
+
+    let bytes = match opts.format {
+        OrientationFormat::Sexpr => {
+            tree_sitter_context::sexpr::orientation_to_sexpr(&block)
+                .map_err(|e| anyhow!("failed to serialize orientation: {}", e))?
+        }
+        OrientationFormat::Json => {
+            let json = serde_json::to_string_pretty(&block)
+                .map_err(|e| anyhow!("failed to serialize orientation: {}", e))?;
+            format!("{}\n", json).into_bytes()
+        }
+    };
+
+    Ok(OrientationGetResult {
+        bytes,
+        format: OrientationFormat::Sexpr,
+    })
+}
