@@ -38,5 +38,26 @@ jobs:
   build:
     uses: ./.github/workflows/build.yml
 
+  check-generated-bindings:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up stable Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Verify generated TypeScript bindings
+        run: |
+          cargo test -p tree-sitter-context generated_types_contract
+          # Check that generated bindings are up to date
+          git diff --exit-code crates/context/bindings/ || (
+            echo "ERROR: Generated TypeScript bindings are out of date." &&
+            echo "Run 'cargo test -p tree-sitter-context' to regenerate." &&
+            exit 1
+          )
+
   check-wasm-stdlib:
     uses: ./.github/workflows/wasm_stdlib.yml
