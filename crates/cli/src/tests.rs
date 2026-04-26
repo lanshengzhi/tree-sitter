@@ -1,4 +1,5 @@
 mod async_boundary_test;
+mod context_bundle_test;
 mod corpus_test;
 mod detect_language;
 mod helpers;

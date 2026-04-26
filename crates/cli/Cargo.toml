@@ -25,6 +25,11 @@ doc  = false
 name = "tree-sitter"
 path = "src/main.rs"
 
+[[bin]]
+doc  = false
+name = "tree-sitter-context"
+path = "src/bin/tree-sitter-context.rs"
+
 [[bench]]
 harness = false
 name    = "benchmark"
@@ -78,6 +83,7 @@ tree-sitter-tags.workspace      = true
 encoding_rs            = "0.8.35"
 tree_sitter_proc_macro = { package = "tree-sitter-tests-proc-macro", path = "src/tests/proc_macro" }
 widestring             = "1.2.1"
+tree-sitter-rust       = "0.24.2"
 
 pretty_assertions.workspace = true
 tempfile.workspace          = true
