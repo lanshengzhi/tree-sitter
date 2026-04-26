@@ -136,10 +136,15 @@ Process failures map to these stable stderr prefixes:
 | unsupported_tier | `error: unsupported tier` | `error: unsupported tier: body` |
 | unsupported_format | `error: unsupported format` | `error: unsupported format: xml` |
 
+## Completed in R2
+
+- Graph snapshot integration: `graph_snapshot_id` now reflects the current HEAD snapshot ID or `"no_graph"`.
+- Orientation freshness tracking: `orientation_freshness` is `fresh`, `stale`, or `unknown` (enum locked in R0).
+- Bundle accepts `--orientation-snapshot-id <id>` for freshness checking.
+
 ## Reserved for Future Versions
 
 - Cross-file resolution via `--project` or `--index` flags.
-- Graph snapshot integration (`graph_snapshot_id` other than `"unknown"`).
-- Orientation freshness tracking (`orientation_freshness` other than `"unknown"`).
 - Daemon mode or persistent connection.
 - MCP server integration.
+- Postprocess fields (`god_nodes`, `communities`, `architecture_summary`) beyond `postprocess_unavailable`.

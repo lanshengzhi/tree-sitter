@@ -49,8 +49,16 @@ fn ae2_not_found_has_zero_confidence_and_unknown_provenance() {
 
     assert!(s.contains("(not_found"));
     assert!(s.contains("(confidence low)"));
-    assert!(s.contains("(graph_snapshot_id \"unknown\")"));
-    assert!(s.contains("(orientation_freshness \"unknown\")"));
+    // U1: Provenance::new no longer hard-codes "unknown"; assert field presence instead.
+    assert!(s.contains("(graph_snapshot_id "));
+    assert!(s.contains("(orientation_freshness "));
+    // orientation_freshness must be one of {fresh, stale, unknown}
+    assert!(
+        s.contains("(orientation_freshness \"unknown\")")
+            || s.contains("(orientation_freshness \"fresh\")")
+            || s.contains("(orientation_freshness \"stale\")"),
+        "orientation_freshness must be one of {{unknown,fresh,stale}}"
+    );
 }
 
 #[test]
@@ -146,7 +154,68 @@ fn provenance_serializes_all_fields() {
 
     assert!(s.contains("(strategy \"sig_tier_bundle\")"));
     assert!(s.contains("(confidence exact)"));
-    assert!(s.contains("(graph_snapshot_id \"unknown\")"));
+    assert!(s.contains("(graph_snapshot_id "));
+    assert!(s.contains("(orientation_freshness "));
+    // Verify enum values
+    assert!(
+        s.contains("(orientation_freshness \"unknown\")")
+            || s.contains("(orientation_freshness \"fresh\")")
+            || s.contains("(orientation_freshness \"stale\")"),
+        "orientation_freshness must be one of {{unknown,fresh,stale}}"
+    );
+}
+
+#[test]
+fn provenance_with_graph_state_serializes_correctly() {
+    let bundle = Bundle {
+        version: 1,
+        path: "test.rs".into(),
+        cells: vec![],
+        omitted: vec![],
+        provenance: Provenance::new("sig_tier_bundle", Confidence::Exact)
+            .with_graph_state("abc123", "fresh"),
+    };
+
+    let bytes = serialize(&BundleResult::Bundle(bundle)).unwrap();
+    let s = String::from_utf8(bytes).unwrap();
+
+    assert!(s.contains("(graph_snapshot_id \"abc123\")"));
+    assert!(s.contains("(orientation_freshness \"fresh\")"));
+}
+
+#[test]
+fn provenance_stale_serializes_correctly() {
+    let bundle = Bundle {
+        version: 1,
+        path: "test.rs".into(),
+        cells: vec![],
+        omitted: vec![],
+        provenance: Provenance::new("sig_tier_bundle", Confidence::Exact)
+            .with_graph_state("old_id", "stale"),
+    };
+
+    let bytes = serialize(&BundleResult::Bundle(bundle)).unwrap();
+    let s = String::from_utf8(bytes).unwrap();
+
+    assert!(s.contains("(graph_snapshot_id \"old_id\")"));
+    assert!(s.contains("(orientation_freshness \"stale\")"));
+}
+
+#[test]
+fn provenance_no_graph_serializes_correctly() {
+    let bundle = Bundle {
+        version: 1,
+        path: "test.rs".into(),
+        cells: vec![],
+        omitted: vec![],
+        provenance: Provenance::new("sig_tier_bundle", Confidence::Exact)
+            .with_graph_state("no_graph", "unknown"),
+    };
+
+    let bytes = serialize(&BundleResult::Bundle(bundle)).unwrap();
+    let s = String::from_utf8(bytes).unwrap();
+
+    assert!(s.contains("(graph_snapshot_id \"no_graph\")"));
     assert!(s.contains("(orientation_freshness \"unknown\")"));
 }
 

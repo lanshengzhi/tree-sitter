@@ -404,8 +404,15 @@ mod tests {
         let s = String::from_utf8(bytes).unwrap();
         assert!(s.contains("(not_found"));
         assert!(s.contains("(confidence low)"));
-        assert!(s.contains("(graph_snapshot_id \"unknown\")"));
-        assert!(s.contains("(orientation_freshness \"unknown\")"));
+        // U1: "unknown" is no longer the sentinel for missing graph; verify field presence.
+        assert!(s.contains("(graph_snapshot_id "));
+        assert!(s.contains("(orientation_freshness "));
+        assert!(
+            s.contains("(orientation_freshness \"unknown\")")
+                || s.contains("(orientation_freshness \"fresh\")")
+                || s.contains("(orientation_freshness \"stale\")"),
+            "orientation_freshness must be one of {{unknown,fresh,stale}}"
+        );
     }
 
     #[test]

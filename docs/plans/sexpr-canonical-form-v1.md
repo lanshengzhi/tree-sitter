@@ -97,8 +97,8 @@ Negative results are valid S-expressions returned on stdout with exit code 0.
   (provenance
     (strategy "stable_id_lookup")
     (confidence 0)
-    (graph_snapshot_id "unknown")
-    (orientation_freshness "unknown")))
+    (graph_snapshot_id "<XXH3 hex>")
+    (orientation_freshness fresh)))
 ```
 
 ### ambiguous_stable_id
@@ -120,8 +120,8 @@ Negative results are valid S-expressions returned on stdout with exit code 0.
   (provenance
     (strategy "stable_id_lookup")
     (confidence 0)
-    (graph_snapshot_id "unknown")
-    (orientation_freshness "unknown")))
+    (graph_snapshot_id "<XXH3 hex>")
+    (orientation_freshness stale)))
 ```
 
 ### exhausted
@@ -137,8 +137,8 @@ Negative results are valid S-expressions returned on stdout with exit code 0.
   (provenance
     (strategy "sig_tier_bundle")
     (confidence exact)
-    (graph_snapshot_id "unknown")
-    (orientation_freshness "unknown")))
+    (graph_snapshot_id "<XXH3 hex>")
+    (orientation_freshness unknown)))
 ```
 
 ### unknown_cross_file
@@ -164,8 +164,8 @@ Every result (positive or negative) includes a provenance block:
 
 - `strategy`: symbolic name of the resolution strategy.
 - `confidence`: `exact`, `high`, `medium`, `low`, or integer 0-100.
-- `graph_snapshot_id`: `"unknown"` in v1.
-- `orientation_freshness`: `"unknown"` in v1.
+- `graph_snapshot_id`: current HEAD snapshot ID (`"<XXH3 hex>"`), or `"no_graph"` when no graph has been built.
+- `orientation_freshness`: `fresh`, `stale`, or `unknown` (enum locked in R0).
 
 ## Error Forms (Process Failures)
 
@@ -187,8 +187,8 @@ The following are reserved for future versions but must not be produced or consu
 
 - `tier` values other than `"sig"`.
 - `output_format` values other than `"sexpr"`.
-- `graph_snapshot_id` values other than `"unknown"`.
-- `orientation_freshness` values other than `"unknown"`.
+- `graph_snapshot_id` values that are not valid XXH3 hex IDs or `"no_graph"`.
+- `orientation_freshness` values other than `fresh`, `stale`, or `unknown`.
 
 ## Determinism Guarantees
 

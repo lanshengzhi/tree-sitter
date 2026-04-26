@@ -114,13 +114,13 @@ The following are deferred to R1 graph implementation:
 4. **Compaction queries**: Graph must support "entry points", "recently modified", "unreachable" queries
 5. **Typed graph errors**: Error schema above must be implemented
 
-## v1 Compatibility
+## v1 → R2 Transition
 
-In v1:
-- `graph_snapshot_id` is always `"unknown"`
-- `orientation_freshness` is always `"unknown"`
-- `compact()` still uses LLM summarization
-- The schema above is documentation-only
+After R2 implementation:
+- `graph_snapshot_id` is the current HEAD snapshot ID (`"<XXH3 hex>"`) or `"no_graph"` when no graph exists.
+- `orientation_freshness` is `fresh`, `stale`, or `unknown` (enum locked in R0, never widened).
+- `compact()` still uses LLM summarization (R3 scope).
+- The schema above is now enforced in code.
 
 ## Future Acceptance Examples
 

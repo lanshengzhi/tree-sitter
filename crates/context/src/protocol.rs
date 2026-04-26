@@ -42,6 +42,17 @@ pub struct Provenance {
     pub orientation_freshness: String,
 }
 
+impl Default for Provenance {
+    fn default() -> Self {
+        Self {
+            strategy: "unknown".to_string(),
+            confidence: Confidence::Medium,
+            graph_snapshot_id: "unknown".to_string(),
+            orientation_freshness: "unknown".to_string(),
+        }
+    }
+}
+
 impl Provenance {
     #[must_use]
     pub fn new(strategy: impl Into<String>, confidence: Confidence) -> Self {
@@ -51,6 +62,17 @@ impl Provenance {
             graph_snapshot_id: "unknown".to_string(),
             orientation_freshness: "unknown".to_string(),
         }
+    }
+
+    #[must_use]
+    pub fn with_graph_state(
+        mut self,
+        snapshot_id: impl Into<String>,
+        freshness: impl Into<String>,
+    ) -> Self {
+        self.graph_snapshot_id = snapshot_id.into();
+        self.orientation_freshness = freshness.into();
+        self
     }
 }
 
