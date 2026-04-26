@@ -5,8 +5,10 @@ use anyhow::{Context as _, Result, anyhow};
 use clap::{Args, Parser, Subcommand};
 use tree_sitter::Parser as TSParser;
 use tree_sitter_context::{
+    GraphStore,
     bundle::{BundleOptions, bundle_chunks},
     chunk::{ChunkOptions, chunks_for_tree},
+    graph::snapshot::GraphError,
     protocol::{
         AmbiguousStableId, AstCell, Bundle, BundleResult, Candidate, Confidence, Exhausted,
         NotFound, OmittedChunk, Provenance,
@@ -137,6 +139,10 @@ struct BundleArgs {
     /// Suppress main output
     #[arg(long, short)]
     quiet: bool,
+
+    /// Expected snapshot ID for freshness check
+    #[arg(long)]
+    orientation_snapshot_id: Option<String>,
 }
 
 fn main() {
@@ -242,6 +248,36 @@ fn run_bundle(args: BundleArgs) -> Result<()> {
         ));
     }
 
+    // Resolve repo root and read HEAD for orientation metadata
+    let (snapshot_id, freshness) =
+        match resolve_repo_root(&args.path).and_then(|root| GraphStore::open(root).ok()) {
+            Some(store) => match store.read_head() {
+                Ok(head) => {
+                    let id = head.0.clone();
+                    let fresh = match &args.orientation_snapshot_id {
+                        Some(expected) if expected == &id => "fresh",
+                        Some(_) => "stale",
+                        None => "unknown",
+                    };
+                    (id, fresh.to_string())
+                }
+                Err(GraphError::MissingSnapshot { .. }) => ("no_graph".to_string(), "unknown".to_string()),
+                Err(GraphError::CorruptedSnapshot { reason, .. }) => {
+                    eprintln!("graph_corrupt: {}", reason);
+                    std::process::exit(3);
+                }
+                Err(GraphError::SchemaMismatch { expected, found }) => {
+                    eprintln!("schema_mismatch: expected={}, found={}", expected, found);
+                    std::process::exit(4);
+                }
+                Err(e) => {
+                    eprintln!("graph_corrupt: {}", e);
+                    std::process::exit(3);
+                }
+            },
+            None => ("no_graph".to_string(), "unknown".to_string()),
+        };
+
     // Validate stable_id format
     if !args.stable_id.contains(':') {
         return Err(anyhow!(
@@ -288,7 +324,8 @@ fn run_bundle(args: BundleArgs) -> Result<()> {
             path: args.path.clone(),
             stable_id: args.stable_id.clone(),
             reason: "no chunk with this stable_id found in file".to_string(),
-            provenance: Provenance::new("stable_id_lookup", Confidence::Low),
+            provenance: Provenance::new("stable_id_lookup", Confidence::Low)
+                .with_graph_state(snapshot_id.clone(), freshness.clone()),
         }),
         1 => {
             let chunk = matching_chunks[0];
@@ -303,7 +340,8 @@ fn run_bundle(args: BundleArgs) -> Result<()> {
                         stable_id: args.stable_id.clone(),
                         reason: "over_budget".to_string(),
                     }],
-                    provenance: Provenance::new("sig_tier_bundle", Confidence::Exact),
+                    provenance: Provenance::new("sig_tier_bundle", Confidence::Exact)
+                        .with_graph_state(snapshot_id.clone(), freshness.clone()),
                 })
             } else {
                 // Bundle with the effective budget
@@ -339,7 +377,8 @@ fn run_bundle(args: BundleArgs) -> Result<()> {
                                 },
                             })
                             .collect(),
-                        provenance: Provenance::new("sig_tier_bundle", Confidence::Exact),
+                        provenance: Provenance::new("sig_tier_bundle", Confidence::Exact)
+                            .with_graph_state(snapshot_id.clone(), freshness.clone()),
                     })
                 } else {
                     // Build the bundle result with only the target chunk
@@ -378,7 +417,8 @@ fn run_bundle(args: BundleArgs) -> Result<()> {
                         path: args.path.clone(),
                         cells,
                         omitted,
-                        provenance: Provenance::new("sig_tier_bundle", Confidence::Exact),
+                        provenance: Provenance::new("sig_tier_bundle", Confidence::Exact)
+                            .with_graph_state(snapshot_id.clone(), freshness.clone()),
                     })
                 }
             }
@@ -397,7 +437,8 @@ fn run_bundle(args: BundleArgs) -> Result<()> {
                     })
                     .collect(),
                 reason: "multiple chunks share this stable_id".to_string(),
-                provenance: Provenance::new("stable_id_lookup", Confidence::Low),
+                provenance: Provenance::new("stable_id_lookup", Confidence::Low)
+                    .with_graph_state(snapshot_id.clone(), freshness.clone()),
             })
         }
     };
@@ -428,4 +469,16 @@ fn build_loader(grammar_path: Option<&std::path::Path>) -> Result<Loader> {
     }
 
     Ok(loader)
+}
+
+/// Walk upward from `start` looking for `.tree-sitter-context-mcp/`.
+fn resolve_repo_root(start: &std::path::Path) -> Option<&std::path::Path> {
+    let mut current = Some(start);
+    while let Some(path) = current {
+        if path.join(".tree-sitter-context-mcp").is_dir() {
+            return Some(path);
+        }
+        current = path.parent();
+    }
+    None
 }

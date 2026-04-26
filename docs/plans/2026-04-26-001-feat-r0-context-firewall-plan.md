@@ -201,7 +201,7 @@ sequenceDiagram
   Bridge-->>LLM: byte-stable S-expression tool result
 ```
 
-The v1 result envelope always includes provenance fields. Before R1 exists, `graph_snapshot_id` and `orientation_freshness` are explicit `unknown` values, never fabricated IDs.
+The v1 result envelope always includes provenance fields. In R0, `graph_snapshot_id` and `orientation_freshness` defaulted to `unknown` as placeholders. After R2, they carry real values: `graph_snapshot_id` is the current HEAD snapshot ID or `"no_graph"`, and `orientation_freshness` is `fresh`, `stale`, or `unknown` (enum locked in R0).
 
 ---
 
@@ -289,7 +289,7 @@ flowchart TB
 
 **Approach:**
 - Introduce protocol structs for the v1 bundle envelope, provenance, included cells, omissions, and typed negative results.
-- Keep `graph_snapshot_id` and `orientation_freshness` present and set to `unknown` until R1 exists.
+- Keep `graph_snapshot_id` and `orientation_freshness` present. R0 set them to `unknown` as placeholders; R2 now populates real values via `GraphStore::read_head`.
 - Serialize protocol records through a single canonical S-expression serializer rather than hand-assembling strings at call sites.
 - Sort lists that are contractually ordered by stable ID, especially parameters, refs, candidates, and omitted stable IDs.
 - Preserve existing JSON `ContextOutput` / `BundleOutput` behavior unless U3 intentionally converts internal bundle records into the S-expression envelope.
@@ -302,7 +302,7 @@ flowchart TB
 
 **Test scenarios:**
 - Covers AE1. Happy path: serializing the same bundle protocol value 100 times produces a single byte sequence.
-- Happy path: provenance serializes `strategy`, `confidence`, `graph_snapshot_id "unknown"`, and `orientation_freshness "unknown"`.
+- Happy path: provenance serializes `strategy`, `confidence`, `graph_snapshot_id`, and `orientation_freshness` (values populated by R2).
 - Covers AE2. Error path: `not_found` serializes with confidence `0` and a stable reason.
 - Covers AE9. Edge case: `exhausted` serializes omitted stable IDs in canonical order.
 - Covers AE10. Edge case: `ambiguous_stable_id` serializes all candidates in canonical order without selecting one.
@@ -440,7 +440,7 @@ flowchart TB
 - `pi-mono/packages/coding-agent/src/core/tools/read.ts` and related tool tests for validation and result shape patterns.
 
 **Test scenarios:**
-- Covers AE2. Happy path / negative signal: `get_context_bundle` for a missing stable ID returns canonical `not_found` with `graph_snapshot_id` and `orientation_freshness` as `unknown`.
+- Covers AE2. Happy path / negative signal: `get_context_bundle` for a missing stable ID returns canonical `not_found` with `graph_snapshot_id` and `orientation_freshness` populated by R2 (or `no_graph` / `unknown` when no graph exists).
 - Covers AE3. Error path: malformed CLI stdout such as `(bundle (foo` returns `rust-output-invalid` and never includes raw stdout.
 - Covers AE8. Regression: existing seven built-in tool definitions and result schema fixtures remain byte-identical before and after registering the extension.
 - Edge case: path traversal outside cwd is rejected before spawn.
@@ -551,7 +551,7 @@ flowchart TB
 - Document `should_reorient()` severe triggers and explicitly distinguish ordinary graph staleness from prompt-prefix invalidation.
 - Document the future `compact(messages, { strategy, fallback })` contract and the rule that graph failure must not silently call LLM summarization.
 - Define the future `CompactionResult.details` S-expression shape for graph-aware folding and typed graph errors.
-- Cross-reference R1 obligations for deterministic `graph_snapshot_id`, snapshot diff, `.tree-sitter-context-mcp/HEAD`, required graph queries, and typed graph errors.
+- Cross-reference R1 obligations for deterministic `graph_snapshot_id`, snapshot diff, `.tree-sitter-context-mcp/HEAD`, required graph queries, and typed graph errors. R2 has now implemented the read-only HEAD integration and freshness wiring.
 
 **Patterns to follow:**
 - `pi-mono/packages/coding-agent/src/core/compaction/compaction.ts` for current `CompactionResult.details` and `compact()` behavior.
