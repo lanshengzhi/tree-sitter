@@ -16,7 +16,7 @@ Tree-sitter is a parser generator tool and an incremental parsing library. It ca
 - [Rust binding](lib/binding_rust/README.md)
 - [Wasm binding](lib/binding_web/README.md)
 - [Command-line interface](crates/cli/README.md)
-- [Experimental tree-sitter-context RFC](docs/ts.md)
+- [Experimental tree-sitter-context RFC](docs/plans/tree-sitter-context-rfc-2026-04-24.md)
 
 [discord]: https://img.shields.io/discord/1063097320771698699?logo=discord&label=discord
 [matrix]: https://img.shields.io/matrix/tree-sitter-chat%3Amatrix.org?logo=matrix&label=matrix
