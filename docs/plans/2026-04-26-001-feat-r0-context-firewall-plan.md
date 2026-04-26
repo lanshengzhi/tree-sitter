@@ -1,7 +1,7 @@
 ---
 title: "feat: Add R0 context firewall vertical slice"
 type: feat
-status: active
+status: completed
 date: 2026-04-26
 origin: docs/brainstorms/2026-04-26-r0-context-firewall-requirements.md
 deepened: 2026-04-26
