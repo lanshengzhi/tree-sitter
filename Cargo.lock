@@ -2018,6 +2018,7 @@ dependencies = [
  "tree-sitter-generate",
  "tree-sitter-highlight",
  "tree-sitter-loader",
+ "tree-sitter-rust",
  "tree-sitter-tags",
  "tree-sitter-tests-proc-macro",
  "unindent",
