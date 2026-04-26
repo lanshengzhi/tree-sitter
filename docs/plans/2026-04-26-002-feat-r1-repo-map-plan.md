@@ -1,7 +1,7 @@
 ---
 title: "feat: Add R1 repo map graph substrate"
 type: feat
-status: active
+status: completed
 date: 2026-04-26
 origin: docs/brainstorms/2026-04-26-r1-repo-map-requirements.md
 ---
