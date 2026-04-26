@@ -192,7 +192,7 @@ fn first_named_identifier(node: Node) -> Option<Node> {
     })
 }
 
-fn estimate_tokens(byte_len: usize) -> usize {
+pub(crate) fn estimate_tokens(byte_len: usize) -> usize {
     byte_len.div_ceil(4).max(1)
 }
 

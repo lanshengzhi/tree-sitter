@@ -31,6 +31,8 @@ enum Commands {
     Bundle(BundleArgs),
     /// Graph operations for repo map substrate
     Graph(GraphArgs),
+    /// Orientation operations for repo context
+    Orientation(OrientationArgs),
 }
 
 #[derive(Args)]
@@ -107,6 +109,33 @@ struct GraphCleanArgs {
 }
 
 #[derive(Args)]
+struct OrientationArgs {
+    #[command(subcommand)]
+    command: OrientationCommands,
+}
+
+#[derive(Subcommand)]
+enum OrientationCommands {
+    /// Get the current orientation block
+    Get(OrientationGetArgs),
+}
+
+#[derive(Args)]
+struct OrientationGetArgs {
+    /// Repository root
+    #[arg(long, default_value = ".")]
+    repo_root: PathBuf,
+
+    /// Token budget for the orientation block
+    #[arg(long)]
+    budget: Option<usize>,
+
+    /// Output format (sexpr or json)
+    #[arg(long, default_value = "sexpr")]
+    format: String,
+}
+
+#[derive(Args)]
 struct BundleArgs {
     /// Path to the source file
     #[arg(index = 1)]
@@ -158,6 +187,7 @@ fn run() -> Result<()> {
     match cli.command {
         Commands::Bundle(args) => run_bundle(args),
         Commands::Graph(args) => run_graph(args),
+        Commands::Orientation(args) => run_orientation(args),
     }
 }
 
@@ -219,6 +249,53 @@ fn run_graph(args: GraphArgs) -> Result<()> {
             let json = context_graph::render_json(&result)?;
             std::io::stdout().write_all(json.as_bytes())?;
             Ok(())
+        }
+    }
+}
+
+fn run_orientation(args: OrientationArgs) -> Result<()> {
+    use tree_sitter_cli::context_graph;
+
+    match args.command {
+        OrientationCommands::Get(get_args) => {
+            let format = match get_args.format.as_str() {
+                "sexpr" => context_graph::OrientationFormat::Sexpr,
+                "json" => context_graph::OrientationFormat::Json,
+                _ => {
+                    return Err(anyhow!(
+                        "unsupported format: {}. Only 'sexpr' and 'json' are supported",
+                        get_args.format
+                    ));
+                }
+            };
+
+            let opts = context_graph::OrientationGetOptions {
+                repo_root: get_args.repo_root,
+                budget: get_args.budget,
+                format,
+            };
+
+            match context_graph::orientation_get(&opts) {
+                Ok(result) => {
+                    std::io::stdout().write_all(&result.bytes)?;
+                    Ok(())
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    if msg.starts_with("no_graph:") {
+                        eprintln!("{}", msg);
+                        std::process::exit(2);
+                    } else if msg.starts_with("graph_corrupt:") {
+                        eprintln!("{}", msg);
+                        std::process::exit(3);
+                    } else if msg.starts_with("schema_mismatch:") {
+                        eprintln!("{}", msg);
+                        std::process::exit(4);
+                    } else {
+                        Err(e)
+                    }
+                }
+            }
         }
     }
 }

@@ -2,6 +2,7 @@ mod async_boundary_test;
 mod context_bundle_test;
 mod context_graph_test;
 mod corpus_test;
+mod orientation_get_test;
 mod detect_language;
 mod helpers;
 mod highlight_test;

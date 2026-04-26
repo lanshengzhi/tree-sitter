@@ -7,6 +7,7 @@ pub mod chunk;
 pub mod graph;
 pub mod identity;
 pub mod invalidation;
+pub mod orientation;
 pub mod protocol;
 pub mod schema;
 pub mod sexpr;
@@ -14,6 +15,7 @@ pub mod symbols;
 
 pub use bundle::{BundleOptions, BundleOutput, OmissionReason, bundle_chunks};
 pub use chunk::{ChunkOptions, ChunkOutput, chunks_for_tree};
+pub use orientation::{build_orientation, OrientationBlock, OrientationField, OrientationStats};
 pub use graph::{
     canonicalize_snapshot, extract_graph_file, EdgeStatus, GraphError, GraphFile, GraphMeta,
     GraphNode, GraphNodeHandle, GraphSnapshot, GraphSnapshotId, GraphSymbol, GraphStore,
