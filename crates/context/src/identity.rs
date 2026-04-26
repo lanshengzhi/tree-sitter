@@ -8,7 +8,7 @@ use crate::schema::{ByteRange, ChunkId, ChunkRecord};
 /// Named chunks are identified by `(path, kind, name, parent)`.
 /// Unnamed chunks fall back to `(path, kind, content_hash, parent)`.
 #[derive(
-    Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+    Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
 #[serde(transparent)]
 pub struct StableId(pub String);

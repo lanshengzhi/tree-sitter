@@ -27,6 +27,81 @@ struct Cli {
 enum Commands {
     /// Extract a context bundle for a specific stable ID
     Bundle(BundleArgs),
+    /// Graph operations for repo map substrate
+    Graph(GraphArgs),
+}
+
+#[derive(Args)]
+struct GraphArgs {
+    #[command(subcommand)]
+    command: GraphCommands,
+}
+
+#[derive(Subcommand)]
+enum GraphCommands {
+    /// Build a graph snapshot from the repo
+    Build(GraphBuildArgs),
+    /// Incrementally update graph from previous HEAD
+    Update(GraphBuildArgs),
+    /// Show graph store status
+    Status(GraphStatusArgs),
+    /// Verify graph store integrity
+    Verify(GraphVerifyArgs),
+    /// Diff two snapshots
+    Diff(GraphDiffArgs),
+    /// Clean unreachable snapshots
+    Clean(GraphCleanArgs),
+}
+
+#[derive(Args)]
+struct GraphBuildArgs {
+    /// Repository root to scan
+    #[arg(long, default_value = ".")]
+    repo_root: PathBuf,
+
+    /// Custom grammar directory
+    #[arg(long)]
+    grammar_path: Option<PathBuf>,
+
+    /// Suppress main output
+    #[arg(long, short)]
+    quiet: bool,
+}
+
+#[derive(Args)]
+struct GraphStatusArgs {
+    /// Repository root
+    #[arg(long, default_value = ".")]
+    repo_root: PathBuf,
+}
+
+#[derive(Args)]
+struct GraphVerifyArgs {
+    /// Repository root
+    #[arg(long, default_value = ".")]
+    repo_root: PathBuf,
+}
+
+#[derive(Args)]
+struct GraphDiffArgs {
+    /// Repository root
+    #[arg(long, default_value = ".")]
+    repo_root: PathBuf,
+
+    /// From snapshot ID
+    #[arg(long)]
+    from: String,
+
+    /// To snapshot ID
+    #[arg(long)]
+    to: String,
+}
+
+#[derive(Args)]
+struct GraphCleanArgs {
+    /// Repository root
+    #[arg(long, default_value = ".")]
+    repo_root: PathBuf,
 }
 
 #[derive(Args)]
@@ -76,6 +151,69 @@ fn run() -> Result<()> {
 
     match cli.command {
         Commands::Bundle(args) => run_bundle(args),
+        Commands::Graph(args) => run_graph(args),
+    }
+}
+
+fn run_graph(args: GraphArgs) -> Result<()> {
+    use tree_sitter_cli::context_graph;
+    use tree_sitter_context::GraphSnapshotId;
+
+    match args.command {
+        GraphCommands::Build(build_args) => {
+            let opts = context_graph::GraphBuildOptions {
+                repo_root: build_args.repo_root,
+                grammar_path: build_args.grammar_path,
+                quiet: build_args.quiet,
+            };
+            let result = context_graph::build_graph(&opts)?;
+            if !opts.quiet {
+                let json = context_graph::render_json(&result)?;
+                std::io::stdout().write_all(json.as_bytes())?;
+            }
+            Ok(())
+        }
+        GraphCommands::Update(build_args) => {
+            let opts = context_graph::GraphBuildOptions {
+                repo_root: build_args.repo_root,
+                grammar_path: build_args.grammar_path,
+                quiet: build_args.quiet,
+            };
+            let result = context_graph::graph_update(&opts)?;
+            if !opts.quiet {
+                let json = context_graph::render_json(&result)?;
+                std::io::stdout().write_all(json.as_bytes())?;
+            }
+            Ok(())
+        }
+        GraphCommands::Status(status_args) => {
+            let result = context_graph::graph_status(&status_args.repo_root)?;
+            let json = context_graph::render_json(&result)?;
+            std::io::stdout().write_all(json.as_bytes())?;
+            Ok(())
+        }
+        GraphCommands::Verify(verify_args) => {
+            let result = context_graph::graph_verify(&verify_args.repo_root)?;
+            let json = context_graph::render_json(&result)?;
+            std::io::stdout().write_all(json.as_bytes())?;
+            Ok(())
+        }
+        GraphCommands::Diff(diff_args) => {
+            let diff = context_graph::graph_diff(
+                &diff_args.repo_root,
+                &GraphSnapshotId(diff_args.from),
+                &GraphSnapshotId(diff_args.to),
+            )?;
+            let json = context_graph::render_json(&diff)?;
+            std::io::stdout().write_all(json.as_bytes())?;
+            Ok(())
+        }
+        GraphCommands::Clean(clean_args) => {
+            let result = context_graph::graph_clean(&clean_args.repo_root)?;
+            let json = context_graph::render_json(&result)?;
+            std::io::stdout().write_all(json.as_bytes())?;
+            Ok(())
+        }
     }
 }
 

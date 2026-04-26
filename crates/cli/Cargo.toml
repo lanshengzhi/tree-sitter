@@ -67,8 +67,9 @@ similar.workspace               = true
 streaming-iterator.workspace    = true
 thiserror.workspace             = true
 tiny_http.workspace             = true
-walkdir.workspace               = true
-wasmparser.workspace            = true
+walkdir.workspace              = true
+wasmparser.workspace           = true
+xxhash-rust.workspace          = true
 webbrowser.workspace            = true
 
 tree-sitter.workspace           = true

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::identity::StableId;
 
 /// Confidence level for a chunk or invalidation result.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Confidence {
     /// Exact match with no ambiguity.
@@ -22,7 +22,7 @@ pub enum Confidence {
 }
 
 /// Severity level for a diagnostic.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DiagnosticLevel {
     Info,
@@ -31,7 +31,7 @@ pub enum DiagnosticLevel {
 }
 
 /// Stable machine-readable diagnostic code.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DiagnosticCode {
     GeneralInfo,
@@ -40,7 +40,7 @@ pub enum DiagnosticCode {
 }
 
 /// A diagnostic message attached to engine output.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 pub struct Diagnostic {
     pub level: DiagnosticLevel,
     pub code: DiagnosticCode,
@@ -127,7 +127,7 @@ impl Diagnostic {
 }
 
 /// A byte range within a source file.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 pub struct ByteRange {
     pub start: usize,
     pub end: usize,

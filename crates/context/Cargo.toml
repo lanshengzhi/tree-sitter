@@ -28,6 +28,8 @@ similar.workspace = true
 tree-sitter.workspace = true
 tree-sitter-tags.workspace = true
 ts-rs.workspace = true
+xxhash-rust.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 tree-sitter-rust = "0.24.2"
