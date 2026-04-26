@@ -1,0 +1,50 @@
+{
+  "timestamp": "2026-04-26T11:14:42.928Z",
+  "command": [
+    "/home/lansy/Work/github/tree-sitter/target/release/tree-sitter-context",
+    "bundle",
+    "/home/lansy/Work/github/tree-sitter/crates/cli/src/tests/fixtures/small.rs",
+    "--stable-id",
+    "named:351f5e1b1a0c28827a5b3d3fe3575191",
+    "--tier",
+    "sig",
+    "--format",
+    "sexpr",
+    "--max-tokens",
+    "5000",
+    "--budget",
+    "500",
+    "--grammar-path",
+    "/home/lansy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-rust-0.24.2"
+  ],
+  "fixture": "/home/lansy/Work/github/tree-sitter/crates/cli/src/tests/fixtures/small.rs",
+  "machine": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpus": 8,
+    "nodeVersion": "v25.9.0"
+  },
+  "cold": {
+    "count": 100,
+    "p50": 2.860971999999947,
+    "p95": 3.6962539999999535,
+    "min": 2.508061999998972,
+    "max": 7.487074000000007,
+    "mean": 3.023555750000014
+  },
+  "warm": {
+    "count": 100,
+    "p50": 2.50176300000021,
+    "p95": 3.1122699999996257,
+    "min": 2.223323000000164,
+    "max": 3.300171999999293,
+    "mean": 2.6072932599999876
+  },
+  "gate": {
+    "tier": "pass",
+    "coldP95Threshold": 100,
+    "warmP95Threshold": 100,
+    "callsPerRoundThreshold": 3,
+    "reason": "Cold p95 (3.70ms) and warm p95 (3.11ms) both under 100ms threshold. Subprocess is acceptable for v1."
+  }
+}

@@ -273,10 +273,21 @@ fn run_bundle(args: BundleArgs) -> Result<()> {
 }
 
 fn build_loader(grammar_path: Option<&std::path::Path>) -> Result<Loader> {
-    let loader = if let Some(path) = grammar_path {
+    let mut loader = if let Some(path) = grammar_path {
         Loader::with_parser_lib_path(path.to_path_buf())
     } else {
         Loader::new().map_err(|e| anyhow!("failed to create loader: {e}"))?
     };
+
+    // Load language configurations from standard locations
+    let config = tree_sitter_config::Config::load(None)?;
+    let loader_config = config.get()?;
+    loader.find_all_languages(&loader_config)?;
+
+    // Load from custom grammar path if specified
+    if let Some(path) = grammar_path {
+        loader.find_language_configurations_at_path(path, false)?;
+    }
+
     Ok(loader)
 }
