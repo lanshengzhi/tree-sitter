@@ -1,0 +1,282 @@
+use std::io::Write;
+use std::path::PathBuf;
+
+use anyhow::{Context as _, Result, anyhow};
+use clap::{Args, Parser, Subcommand};
+use tree_sitter::Parser as TSParser;
+use tree_sitter_context::{
+    bundle::{BundleOptions, bundle_chunks},
+    chunk::{ChunkOptions, chunks_for_tree},
+    protocol::{
+        AmbiguousStableId, AstCell, Bundle, BundleResult, Candidate, Confidence, Exhausted,
+        NotFound, OmittedChunk, Provenance,
+    },
+    sexpr::serialize,
+};
+use tree_sitter_loader::Loader;
+
+#[derive(Parser)]
+#[command(name = "tree-sitter-context")]
+#[command(about = "Extract structured code context for LLM consumption")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Extract a context bundle for a specific stable ID
+    Bundle(BundleArgs),
+}
+
+#[derive(Args)]
+struct BundleArgs {
+    /// Path to the source file
+    #[arg(index = 1)]
+    path: PathBuf,
+
+    /// Stable ID to locate
+    #[arg(long)]
+    stable_id: String,
+
+    /// Tier to extract (only "sig" supported in v1)
+    #[arg(long, default_value = "sig")]
+    tier: String,
+
+    /// Output format (only "sexpr" supported in v1)
+    #[arg(long, default_value = "sexpr")]
+    format: String,
+
+    /// Maximum tokens for the result (bridge ceiling)
+    #[arg(long)]
+    max_tokens: usize,
+
+    /// Token budget for included chunks
+    #[arg(long)]
+    budget: usize,
+
+    /// Custom grammar directory
+    #[arg(long)]
+    grammar_path: Option<PathBuf>,
+
+    /// Suppress main output
+    #[arg(long, short)]
+    quiet: bool,
+}
+
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("error: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Bundle(args) => run_bundle(args),
+    }
+}
+
+fn run_bundle(args: BundleArgs) -> Result<()> {
+    // Validate format
+    if args.format != "sexpr" {
+        return Err(anyhow!(
+            "unsupported format: {}. Only 'sexpr' is supported in v1",
+            args.format
+        ));
+    }
+
+    // Validate tier
+    if args.tier != "sig" {
+        return Err(anyhow!(
+            "unsupported tier: {}. Only 'sig' is supported in v1",
+            args.tier
+        ));
+    }
+
+    // Validate path exists and is readable
+    if !args.path.exists() {
+        return Err(anyhow!(
+            "unreadable path: {}",
+            args.path.display()
+        ));
+    }
+
+    // Validate stable_id format
+    if !args.stable_id.contains(':') {
+        return Err(anyhow!(
+            "invalid stable_id format: {}",
+            args.stable_id
+        ));
+    }
+
+    let loader = build_loader(args.grammar_path.as_deref())?;
+
+    let source = std::fs::read(&args.path)
+        .with_context(|| format!("failed to read {}", args.path.display()))?;
+
+    let (language, _language_config) = loader
+        .language_configuration_for_file_name(&args.path)?
+        .ok_or_else(|| anyhow!(
+            "no language grammar for {}",
+            args.path.display()
+        ))?;
+
+    let mut parser = TSParser::new();
+    parser.set_language(&language)?;
+
+    let tree = parser
+        .parse(&source, None)
+        .ok_or_else(|| anyhow!("failed to parse {}", args.path.display()))?;
+
+    let chunk_output = chunks_for_tree(
+        &tree,
+        &args.path,
+        &source,
+        &ChunkOptions::default(),
+    );
+
+    // Find chunks matching the stable_id
+    let matching_chunks: Vec<_> = chunk_output
+        .chunks
+        .iter()
+        .filter(|c| c.stable_id.0 == args.stable_id)
+        .collect();
+
+    let result = match matching_chunks.len() {
+        0 => BundleResult::NotFound(NotFound {
+            path: args.path.clone(),
+            stable_id: args.stable_id.clone(),
+            reason: "no chunk with this stable_id found in file".to_string(),
+            provenance: Provenance::new("stable_id_lookup", Confidence::Low),
+        }),
+        1 => {
+            let chunk = matching_chunks[0];
+            let effective_budget = args.budget.min(args.max_tokens);
+
+            // Check if the chunk itself exceeds the effective budget
+            if chunk.estimated_tokens > effective_budget {
+                BundleResult::Exhausted(Exhausted {
+                    path: args.path.clone(),
+                    stable_id: args.stable_id.clone(),
+                    omitted: vec![OmittedChunk {
+                        stable_id: args.stable_id.clone(),
+                        reason: "over_budget".to_string(),
+                    }],
+                    provenance: Provenance::new("sig_tier_bundle", Confidence::Exact),
+                })
+            } else {
+                // Bundle with the effective budget
+                let bundle = bundle_chunks(
+                    chunk_output.chunks.clone(),
+                    &BundleOptions {
+                        max_tokens: effective_budget,
+                        max_chunks: 100,
+                    },
+                );
+
+                // Check if our target chunk is in the included list
+                let included = bundle.included.iter().any(|c| c.stable_id.0 == args.stable_id);
+
+                if !included {
+                    // The chunk was omitted due to budget constraints
+                    BundleResult::Exhausted(Exhausted {
+                        path: args.path.clone(),
+                        stable_id: args.stable_id.clone(),
+                        omitted: bundle
+                            .omitted
+                            .into_iter()
+                            .filter(|o| o.chunk.stable_id.0 == args.stable_id)
+                            .map(|o| OmittedChunk {
+                                stable_id: o.chunk.stable_id.0.clone(),
+                                reason: match o.reason {
+                                    tree_sitter_context::bundle::OmissionReason::OverBudget => {
+                                        "over_budget".to_string()
+                                    }
+                                    tree_sitter_context::bundle::OmissionReason::LowPriority => {
+                                        "low_priority".to_string()
+                                    }
+                                },
+                            })
+                            .collect(),
+                        provenance: Provenance::new("sig_tier_bundle", Confidence::Exact),
+                    })
+                } else {
+                    // Build the bundle result with only the target chunk
+                    let cells = vec![AstCell {
+                        stable_id: chunk.stable_id.0.clone(),
+                        kind: chunk.kind.clone(),
+                        name: chunk.name.clone(),
+                        byte_range: (chunk.byte_range.start, chunk.byte_range.end),
+                        estimated_tokens: chunk.estimated_tokens,
+                        confidence: match chunk.confidence {
+                            tree_sitter_context::schema::Confidence::Exact => Confidence::Exact,
+                            tree_sitter_context::schema::Confidence::High => Confidence::High,
+                            tree_sitter_context::schema::Confidence::Medium => Confidence::Medium,
+                            tree_sitter_context::schema::Confidence::Low => Confidence::Low,
+                        },
+                    }];
+
+                    let omitted: Vec<OmittedChunk> = bundle
+                        .omitted
+                        .into_iter()
+                        .map(|o| OmittedChunk {
+                            stable_id: o.chunk.stable_id.0.clone(),
+                            reason: match o.reason {
+                                tree_sitter_context::bundle::OmissionReason::OverBudget => {
+                                    "over_budget".to_string()
+                                }
+                                tree_sitter_context::bundle::OmissionReason::LowPriority => {
+                                    "low_priority".to_string()
+                                }
+                            },
+                        })
+                        .collect();
+
+                    BundleResult::Bundle(Bundle {
+                        version: 1,
+                        path: args.path.clone(),
+                        cells,
+                        omitted,
+                        provenance: Provenance::new("sig_tier_bundle", Confidence::Exact),
+                    })
+                }
+            }
+        }
+        _ => {
+            // Multiple matches - ambiguous
+            BundleResult::AmbiguousStableId(AmbiguousStableId {
+                path: args.path.clone(),
+                stable_id: args.stable_id.clone(),
+                candidates: matching_chunks
+                    .iter()
+                    .map(|c| Candidate {
+                        anchor_byte: c.id.anchor_byte,
+                        kind: c.kind.clone(),
+                        name: c.name.clone(),
+                    })
+                    .collect(),
+                reason: "multiple chunks share this stable_id".to_string(),
+                provenance: Provenance::new("stable_id_lookup", Confidence::Low),
+            })
+        }
+    };
+
+    if !args.quiet {
+        let bytes = serialize(&result)?;
+        std::io::stdout().write_all(&bytes)?;
+    }
+
+    Ok(())
+}
+
+fn build_loader(grammar_path: Option<&std::path::Path>) -> Result<Loader> {
+    let loader = if let Some(path) = grammar_path {
+        Loader::with_parser_lib_path(path.to_path_buf())
+    } else {
+        Loader::new().map_err(|e| anyhow!("failed to create loader: {e}"))?
+    };
+    Ok(loader)
+}
