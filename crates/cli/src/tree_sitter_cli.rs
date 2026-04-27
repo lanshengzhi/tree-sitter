@@ -2,6 +2,7 @@
 
 pub mod context;
 pub mod context_graph;
+pub mod context_invalidate;
 pub mod fuzz;
 pub mod highlight;
 pub mod init;

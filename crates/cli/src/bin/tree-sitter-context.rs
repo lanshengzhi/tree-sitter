@@ -33,6 +33,8 @@ enum Commands {
     Graph(GraphArgs),
     /// Orientation operations for repo context
     Orientation(OrientationArgs),
+    /// Detect which chunks changed between two file snapshots
+    Invalidate(InvalidateArgs),
 }
 
 #[derive(Args)]
@@ -149,6 +151,25 @@ struct OrientationGetArgs {
 }
 
 #[derive(Args)]
+struct InvalidateArgs {
+    /// Path to the new (current) file
+    #[arg(index = 1)]
+    new_path: PathBuf,
+
+    /// Path to the old (previous) file
+    #[arg(long, required = true)]
+    old: PathBuf,
+
+    /// Output format (sexpr or json)
+    #[arg(long, default_value = "sexpr")]
+    format: String,
+
+    /// Suppress main output
+    #[arg(long, short)]
+    quiet: bool,
+}
+
+#[derive(Args)]
 struct BundleArgs {
     /// Path to the source file
     #[arg(index = 1)]
@@ -201,6 +222,45 @@ fn run() -> Result<()> {
         Commands::Bundle(args) => run_bundle(args),
         Commands::Graph(args) => run_graph(args),
         Commands::Orientation(args) => run_orientation(args),
+        Commands::Invalidate(args) => run_invalidate(args),
+    }
+}
+
+fn run_invalidate(args: InvalidateArgs) -> Result<()> {
+    use tree_sitter_cli::context_invalidate::{InvalidateOptions, InvalidateFormat};
+
+    let format = match InvalidateFormat::from_str(&args.format) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("invalid_format: {}", e);
+            std::process::exit(5);
+        }
+    };
+
+    let opts = InvalidateOptions {
+        new_path: args.new_path,
+        old_path: args.old,
+        format,
+        quiet: args.quiet,
+    };
+
+    match tree_sitter_cli::context_invalidate::run_invalidate(&opts) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.starts_with("file_not_found:") {
+                eprintln!("{}", msg);
+                std::process::exit(2);
+            } else if msg.starts_with("no_language:") {
+                eprintln!("{}", msg);
+                std::process::exit(3);
+            } else if msg.starts_with("parse_error:") {
+                eprintln!("{}", msg);
+                std::process::exit(4);
+            } else {
+                Err(e)
+            }
+        }
     }
 }
 
