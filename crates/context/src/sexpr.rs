@@ -404,7 +404,26 @@ fn orientation_to_sexpr_inner(
 
     // Reserved postprocess fields
     indent(w, depth + 1)?;
-    write!(w, "(god_nodes postprocess_unavailable)")?;
+    match &block.god_nodes {
+        crate::orientation::OrientationField::PostprocessUnavailable => {
+            write!(w, "(god_nodes postprocess_unavailable)")?;
+        }
+        crate::orientation::OrientationField::Computed { status, nodes } => {
+            write!(w, "(god_nodes (computation_status {})", escape_string(status))?;
+            for node in nodes {
+                write!(w, "\n")?;
+                indent(w, depth + 2)?;
+                write!(
+                    w,
+                    "((rank {}) (stable_id {}) (path {}))",
+                    node.rank,
+                    escape_string(&node.stable_id),
+                    escape_string(&node.path)
+                )?;
+            }
+            write!(w, ")")?;
+        }
+    }
     write!(w, "\n")?;
     indent(w, depth + 1)?;
     write!(w, "(communities postprocess_unavailable)")?;
@@ -622,5 +641,91 @@ mod tests {
         let s = String::from_utf8(bytes).unwrap();
         assert!(s.contains("(unknown_cross_file"));
         assert!(s.contains("(reason \"v1-non-goal\")"));
+    }
+
+    #[test]
+    fn computed_god_nodes_serializes_correctly() {
+        use crate::graph::postprocess::GodNode;
+        use crate::orientation::{
+            OrientationBlock, OrientationField, OrientationStats,
+        };
+
+        let block = OrientationBlock {
+            schema_version: "r2-2026-04-26".to_string(),
+            graph_snapshot_id: crate::graph::snapshot::GraphSnapshotId("snap123".to_string()),
+            stats: OrientationStats {
+                file_count: 1,
+                symbol_count: 2,
+                language_count: 1,
+                edge_count: 1,
+            },
+            top_referenced: vec![],
+            entry_points: vec![],
+            god_nodes: OrientationField::Computed {
+                status: "computed".to_string(),
+                nodes: vec![
+                    GodNode {
+                        rank: 1,
+                        stable_id: "named:foo".to_string(),
+                        path: "src/lib.rs".to_string(),
+                    },
+                    GodNode {
+                        rank: 2,
+                        stable_id: "named:bar".to_string(),
+                        path: "src/main.rs".to_string(),
+                    },
+                ],
+            },
+            communities: OrientationField::PostprocessUnavailable,
+            architecture_summary: OrientationField::PostprocessUnavailable,
+            budget_truncated: None,
+        };
+
+        let bytes = crate::sexpr::orientation_to_sexpr(&block).unwrap();
+        let s = String::from_utf8(bytes).unwrap();
+
+        assert!(s.contains("(god_nodes (computation_status \"computed\")"));
+        assert!(s.contains("((rank 1) (stable_id \"named:foo\") (path \"src/lib.rs\"))"));
+        assert!(s.contains("((rank 2) (stable_id \"named:bar\") (path \"src/main.rs\"))"));
+    }
+
+    #[test]
+    fn empty_computed_god_nodes_serializes_without_children() {
+        use crate::orientation::{
+            OrientationBlock, OrientationField, OrientationStats,
+        };
+
+        let block = OrientationBlock {
+            schema_version: "r2-2026-04-26".to_string(),
+            graph_snapshot_id: crate::graph::snapshot::GraphSnapshotId("snap456".to_string()),
+            stats: OrientationStats {
+                file_count: 0,
+                symbol_count: 0,
+                language_count: 0,
+                edge_count: 0,
+            },
+            top_referenced: vec![],
+            entry_points: vec![],
+            god_nodes: OrientationField::Computed {
+                status: "computed".to_string(),
+                nodes: vec![],
+            },
+            communities: OrientationField::PostprocessUnavailable,
+            architecture_summary: OrientationField::PostprocessUnavailable,
+            budget_truncated: None,
+        };
+
+        let bytes = crate::sexpr::orientation_to_sexpr(&block).unwrap();
+        let s = String::from_utf8(bytes).unwrap();
+
+        assert!(s.contains("(god_nodes (computation_status \"computed\"))"));
+        // Ensure there are no child lists after the status
+        let god_nodes_start = s.find("(god_nodes").unwrap();
+        let god_nodes_end = s[god_nodes_start..].find(")").unwrap() + god_nodes_start;
+        let god_nodes_section = &s[god_nodes_start..=god_nodes_end];
+        assert!(
+            !god_nodes_section.contains("(rank"),
+            "empty god_nodes should not contain rank entries"
+        );
     }
 }

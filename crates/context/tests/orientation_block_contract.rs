@@ -94,7 +94,7 @@ fn make_test_snapshot_with_edges() -> GraphSnapshot {
 #[test]
 fn ae1_orientation_sexpr_contains_all_fields() {
     let snapshot = make_test_snapshot_with_edges();
-    let block = build_orientation(&snapshot, None);
+    let block = build_orientation(&snapshot, None, None);
     let bytes = orientation_to_sexpr(&block).unwrap();
     let s = String::from_utf8(bytes).unwrap();
 
@@ -112,8 +112,8 @@ fn ae1_orientation_sexpr_contains_all_fields() {
 #[test]
 fn ae2_byte_stability() {
     let snapshot = make_test_snapshot_with_edges();
-    let block1 = build_orientation(&snapshot, None);
-    let block2 = build_orientation(&snapshot, None);
+    let block1 = build_orientation(&snapshot, None, None);
+    let block2 = build_orientation(&snapshot, None, None);
 
     let bytes1 = orientation_to_sexpr(&block1).unwrap();
     let bytes2 = orientation_to_sexpr(&block2).unwrap();
@@ -123,7 +123,7 @@ fn ae2_byte_stability() {
 #[test]
 fn ae3_budget_truncation() {
     let snapshot = make_test_snapshot_with_edges();
-    let block = build_orientation(&snapshot, Some(50));
+    let block = build_orientation(&snapshot, Some(50), None);
 
     assert!(block.budget_truncated.is_some());
     let trunc = block.budget_truncated.unwrap();
@@ -134,7 +134,7 @@ fn ae3_budget_truncation() {
 #[test]
 fn reserved_postprocess_fields_are_unavailable() {
     let snapshot = make_test_snapshot_with_edges();
-    let block = build_orientation(&snapshot, None);
+    let block = build_orientation(&snapshot, None, None);
 
     assert_eq!(block.god_nodes, OrientationField::PostprocessUnavailable);
     assert_eq!(block.communities, OrientationField::PostprocessUnavailable);
@@ -147,7 +147,7 @@ fn reserved_postprocess_fields_are_unavailable() {
 #[test]
 fn top_referenced_counts_cross_file_refs() {
     let snapshot = make_test_snapshot_with_edges();
-    let block = build_orientation(&snapshot, None);
+    let block = build_orientation(&snapshot, None, None);
 
     assert!(!block.top_referenced.is_empty(), "top_referenced must not be empty when cross-file refs exist");
     let first = &block.top_referenced[0];
@@ -158,7 +158,7 @@ fn top_referenced_counts_cross_file_refs() {
 #[test]
 fn entry_points_excludes_nodes_with_inbound_refs() {
     let snapshot = make_test_snapshot_with_edges();
-    let block = build_orientation(&snapshot, None);
+    let block = build_orientation(&snapshot, None, None);
 
     // caller has no inbound refs, so it should be an entry point
     // target has inbound refs from caller, so it should NOT be an entry point
@@ -171,7 +171,7 @@ fn entry_points_excludes_nodes_with_inbound_refs() {
 fn ae14_r3_upgrade_path_simulation() {
     // Simulate R3: if god_nodes were replaced with real values, only the god_nodes assertion should fail
     let snapshot = make_test_snapshot_with_edges();
-    let mut block = build_orientation(&snapshot, None);
+    let mut block = build_orientation(&snapshot, None, None);
 
     // This simulates what R3 would do
     block.god_nodes = OrientationField::PostprocessUnavailable; // Still unavailable in R2

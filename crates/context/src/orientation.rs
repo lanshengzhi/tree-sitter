@@ -59,6 +59,11 @@ pub struct EntryPoint {
 #[serde(rename_all = "snake_case")]
 pub enum OrientationField {
     PostprocessUnavailable,
+    Computed {
+        #[serde(rename = "computation_status")]
+        status: String,
+        nodes: Vec<crate::graph::postprocess::GodNode>,
+    },
 }
 
 /// Budget truncation metadata.
@@ -70,10 +75,22 @@ pub struct BudgetTruncated {
 
 /// Build a deterministic, byte-stable orientation block from a snapshot.
 #[must_use]
-pub fn build_orientation(snapshot: &GraphSnapshot, budget: Option<usize>) -> OrientationBlock {
+pub fn build_orientation(
+    snapshot: &GraphSnapshot,
+    budget: Option<usize>,
+    god_nodes: Option<Vec<crate::graph::postprocess::GodNode>>,
+) -> OrientationBlock {
     let stats = build_stats(snapshot);
     let top_referenced = build_top_referenced(snapshot);
     let entry_points = build_entry_points(snapshot);
+
+    let god_nodes_field = match god_nodes {
+        Some(nodes) => OrientationField::Computed {
+            status: "computed".to_string(),
+            nodes,
+        },
+        None => OrientationField::PostprocessUnavailable,
+    };
 
     let mut block = OrientationBlock {
         schema_version: ORIENTATION_SCHEMA_VERSION.to_string(),
@@ -81,7 +98,7 @@ pub fn build_orientation(snapshot: &GraphSnapshot, budget: Option<usize>) -> Ori
         stats,
         top_referenced,
         entry_points,
-        god_nodes: OrientationField::PostprocessUnavailable,
+        god_nodes: god_nodes_field,
         communities: OrientationField::PostprocessUnavailable,
         architecture_summary: OrientationField::PostprocessUnavailable,
         budget_truncated: None,
@@ -328,7 +345,7 @@ mod tests {
     #[test]
     fn orientation_block_has_expected_fields() {
         let snapshot = make_test_snapshot();
-        let block = build_orientation(&snapshot, None);
+        let block = build_orientation(&snapshot, None, None);
 
         assert_eq!(block.schema_version, ORIENTATION_SCHEMA_VERSION);
         assert_eq!(block.graph_snapshot_id.0, "test123");
@@ -345,8 +362,8 @@ mod tests {
     #[test]
     fn byte_stability_across_two_builds() {
         let snapshot = make_test_snapshot();
-        let block1 = build_orientation(&snapshot, None);
-        let block2 = build_orientation(&snapshot, None);
+        let block1 = build_orientation(&snapshot, None, None);
+        let block2 = build_orientation(&snapshot, None, None);
 
         let json1 = serde_json::to_string(&block1).unwrap();
         let json2 = serde_json::to_string(&block2).unwrap();
@@ -356,7 +373,7 @@ mod tests {
     #[test]
     fn budget_truncation_drops_entry_points_first() {
         let snapshot = make_test_snapshot();
-        let block = build_orientation(&snapshot, Some(50));
+        let block = build_orientation(&snapshot, Some(50), None);
 
         assert!(
             block.budget_truncated.is_some(),

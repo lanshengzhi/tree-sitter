@@ -61,6 +61,22 @@ pub struct GraphCleanResult {
     pub diagnostics: Vec<GraphCliDiagnostic>,
 }
 
+/// Options for graph postprocess.
+pub struct GraphPostprocessOptions {
+    pub repo_root: PathBuf,
+    pub quiet: bool,
+}
+
+/// Result of graph postprocess.
+#[derive(Serialize)]
+pub struct GraphPostprocessResult {
+    pub status: String,
+    pub snapshot_id: GraphSnapshotId,
+    pub node_count: usize,
+    pub god_nodes_count: usize,
+    pub diagnostics: Vec<GraphCliDiagnostic>,
+}
+
 #[derive(Serialize)]
 pub struct GraphCliDiagnostic {
     pub level: String,
@@ -474,6 +490,48 @@ pub fn graph_clean(repo_root: &Path) -> Result<GraphCleanResult> {
     })
 }
 
+/// Compute postprocess artifacts for the current HEAD snapshot.
+pub fn graph_postprocess(opts: &GraphPostprocessOptions) -> Result<GraphPostprocessResult> {
+    let store = GraphStore::open(&opts.repo_root)
+        .with_context(|| format!("failed to open graph store at {}", opts.repo_root.display()))?;
+
+    let head_id = store.read_head().map_err(|e| match e {
+        tree_sitter_context::GraphError::MissingSnapshot { .. } => {
+            anyhow!("no_graph: run `tree-sitter-context graph build` first")
+        }
+        tree_sitter_context::GraphError::CorruptedSnapshot { reason, .. } => {
+            anyhow!("graph_corrupt: {}", reason)
+        }
+        tree_sitter_context::GraphError::SchemaMismatch { expected, found } => {
+            anyhow!("schema_mismatch: expected={}, found={}", expected, found)
+        }
+        e => anyhow!("graph_corrupt: {}", e),
+    })?;
+
+    let snapshot = store
+        .read_snapshot(&head_id)
+        .map_err(|e| anyhow!("graph_corrupt: failed to read snapshot: {}", e))?;
+
+    let node_count: usize = snapshot.files.iter().map(|f| f.nodes.len()).sum();
+    let god_nodes = tree_sitter_context::compute_god_nodes(&snapshot);
+    let god_nodes_count = god_nodes.len();
+
+    tree_sitter_context::write_postprocess_artifact(
+        store.path(),
+        head_id.0.clone(),
+        god_nodes,
+    )
+    .map_err(|e| anyhow!("postprocess_write_failed: {}", e))?;
+
+    Ok(GraphPostprocessResult {
+        status: "ok".to_string(),
+        snapshot_id: head_id,
+        node_count,
+        god_nodes_count,
+        diagnostics: vec![],
+    })
+}
+
 fn build_loader(grammar_path: Option<&Path>) -> Result<Loader> {
     let mut loader = if let Some(path) = grammar_path {
         Loader::with_parser_lib_path(path.to_path_buf())
@@ -566,7 +624,29 @@ pub fn orientation_get(opts: &OrientationGetOptions) -> Result<OrientationGetRes
         .read_snapshot(&head_id)
         .map_err(|e| anyhow!("graph_corrupt: failed to read snapshot: {}", e))?;
 
-    let block = tree_sitter_context::build_orientation(&snapshot, opts.budget);
+    // Read postprocess artifact if present
+    let god_nodes = match tree_sitter_context::read_postprocess_artifact(
+        store.path(),
+        &head_id.0,
+    ) {
+        tree_sitter_context::PostprocessStatus::Present(nodes) => Some(nodes),
+        tree_sitter_context::PostprocessStatus::Missing => None,
+        tree_sitter_context::PostprocessStatus::Corrupt(reason) => {
+            eprintln!("postprocess_corrupt: {}", reason);
+            None
+        }
+        tree_sitter_context::PostprocessStatus::SchemaMismatch(version) => {
+            eprintln!("postprocess_schema_mismatch: expected={}, found={}",
+                tree_sitter_context::POSTPROCESS_SCHEMA_VERSION, version);
+            None
+        }
+        tree_sitter_context::PostprocessStatus::SnapshotMismatch => {
+            eprintln!("postprocess_snapshot_mismatch: artifact snapshot_id does not match HEAD");
+            None
+        }
+    };
+
+    let block = tree_sitter_context::build_orientation(&snapshot, opts.budget, god_nodes);
 
     let bytes = match opts.format {
         OrientationFormat::Sexpr => {
