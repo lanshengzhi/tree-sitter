@@ -136,6 +136,24 @@ Process failures map to these stable stderr prefixes:
 | unsupported_tier | `error: unsupported tier` | `error: unsupported tier: body` |
 | unsupported_format | `error: unsupported format` | `error: unsupported format: xml` |
 
+## Commands
+
+### bundle
+
+The original command for extracting context bundles. See above for full specification.
+
+### invalidate
+
+Added in the incremental invalidation feature (2026-04-28).
+
+```text
+tree-sitter-context invalidate <NEW_PATH> --old <OLD_PATH> [--format sexpr|json]
+```
+
+Detects which semantic chunks changed between two file snapshots. Returns classifications: `affected`, `added`, `removed`, `unchanged`.
+
+See [tree-sitter-context-invalidation-contract.md](tree-sitter-context-invalidation-contract.md) for the full invalidation contract.
+
 ## Completed in R2
 
 - Graph snapshot integration: `graph_snapshot_id` now reflects the current HEAD snapshot ID or `"no_graph"`.
