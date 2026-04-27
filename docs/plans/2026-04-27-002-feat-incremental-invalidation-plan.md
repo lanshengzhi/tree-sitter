@@ -1,7 +1,7 @@
 ---
 title: "feat: Add incremental invalidation CLI and pi-mono tool"
 type: feat
-status: active
+status: completed
 date: 2026-04-27
 origin: docs/ideation/2026-04-26-tree-sitter-pi-integration-ideation.md
 ---
