@@ -137,7 +137,85 @@ async function main() {
       `[harness] step=bundle_fresh reason=snapshot_id expected=${snapshotId} actual=${freshSnapshotMatch[1]}`
     );
 
-    // 5. Modify fixture (change function body, not signature)
+    // 5. Graph postprocess (R3)
+    const postprocessResult = runCli(tempDir, "graph", "postprocess", "--repo-root", tempDir);
+    assert.equal(
+      postprocessResult.status,
+      0,
+      `[harness] step=graph_postprocess reason=non_zero expected=0 actual=${postprocessResult.status} stderr=${postprocessResult.stderr}`
+    );
+
+    // 6. Orientation get after postprocess -> computed god_nodes (R3 assertion d)
+    const orientPostprocessResult = runCli(
+      tempDir,
+      "orientation",
+      "get",
+      "--repo-root",
+      tempDir,
+      "--format",
+      "sexpr",
+      "--budget",
+      "2000"
+    );
+    assert.equal(
+      orientPostprocessResult.status,
+      0,
+      `[harness] step=orientation_postprocess reason=non_zero expected=0 actual=${orientPostprocessResult.status} stderr=${orientPostprocessResult.stderr}`
+    );
+    const postprocessSexpr = orientPostprocessResult.stdout;
+    assert.ok(
+      postprocessSexpr.includes('(god_nodes (computation_status "computed")'),
+      `[harness] step=orientation_postprocess reason=missing_computed_god_nodes expected=computed_god_nodes actual=${postprocessSexpr}`
+    );
+    assert.ok(
+      postprocessSexpr.includes('((rank 1)'),
+      `[harness] step=orientation_postprocess reason=missing_rank_1 expected=rank_1_entry actual=${postprocessSexpr}`
+    );
+
+    // 7. Bundle with current snapshot ID -> fresh (R3 assertion e)
+    const bundleFreshResult = runCli(
+      tempDir,
+      "bundle",
+      bundlePath,
+      "--stable-id",
+      FIXTURE_STABLE_ID,
+      "--orientation-snapshot-id",
+      snapshotId,
+      "--format",
+      "sexpr",
+      "--max-tokens",
+      "5000",
+      "--budget",
+      "500"
+    );
+    assert.equal(
+      bundleFreshResult.status,
+      0,
+      `[harness] step=bundle_postprocess_fresh reason=non_zero expected=0 actual=${bundleFreshResult.status} stderr=${bundleFreshResult.stderr}`
+    );
+    const freshPostprocessSexpr = bundleFreshResult.stdout;
+    const freshPostprocessFreshnessMatch = freshPostprocessSexpr.match(/\(orientation_freshness "([^"]+)"\)/);
+    const freshPostprocessSnapshotMatch = freshPostprocessSexpr.match(/\(graph_snapshot_id "([^"]+)"\)/);
+    assert.ok(
+      freshPostprocessFreshnessMatch,
+      `[harness] step=bundle_postprocess_fresh reason=missing_freshness expected=orientation_freshness actual=${freshPostprocessSexpr}`
+    );
+    assert.equal(
+      freshPostprocessFreshnessMatch[1],
+      "fresh",
+      `[harness] step=bundle_postprocess_fresh reason=freshness expected=fresh actual=${freshPostprocessFreshnessMatch[1]}`
+    );
+    assert.ok(
+      freshPostprocessSnapshotMatch,
+      `[harness] step=bundle_postprocess_fresh reason=missing_snapshot_id expected=graph_snapshot_id actual=${freshPostprocessSexpr}`
+    );
+    assert.equal(
+      freshPostprocessSnapshotMatch[1],
+      snapshotId,
+      `[harness] step=bundle_postprocess_fresh reason=snapshot_id expected=${snapshotId} actual=${freshPostprocessSnapshotMatch[1]}`
+    );
+
+    // 8. Modify fixture again (change function body, not signature)
     const aRsPath = join(tempDir, "a.rs");
     const originalContent = await readFile(aRsPath, "utf-8");
     const modifiedContent = originalContent.replace(
@@ -146,7 +224,7 @@ async function main() {
     );
     await writeFile(aRsPath, modifiedContent);
 
-    // 6. Graph update
+    // 9. Graph update (do NOT run postprocess)
     const updateResult = runCli(tempDir, "graph", "update", "--repo-root", tempDir);
     assert.equal(
       updateResult.status,
@@ -154,7 +232,30 @@ async function main() {
       `[harness] step=graph_update reason=non_zero expected=0 actual=${updateResult.status} stderr=${updateResult.stderr}`
     );
 
-    // 7. Bundle with old snapshot ID -> stale (sexpr format)
+    // 10. Orientation get after update without re-postprocess -> unavailable (R3 assertion f)
+    const orientStaleResult = runCli(
+      tempDir,
+      "orientation",
+      "get",
+      "--repo-root",
+      tempDir,
+      "--format",
+      "sexpr",
+      "--budget",
+      "2000"
+    );
+    assert.equal(
+      orientStaleResult.status,
+      0,
+      `[harness] step=orientation_stale reason=non_zero expected=0 actual=${orientStaleResult.status} stderr=${orientStaleResult.stderr}`
+    );
+    const staleOrientSexpr = orientStaleResult.stdout;
+    assert.ok(
+      staleOrientSexpr.includes('(god_nodes postprocess_unavailable)'),
+      `[harness] step=orientation_stale reason=missing_postprocess_unexpected expected=postprocess_unavailable actual=${staleOrientSexpr}`
+    );
+
+    // 11. Bundle with old snapshot ID -> stale (sexpr format)
     const staleResult = runCli(
       tempDir,
       "bundle",

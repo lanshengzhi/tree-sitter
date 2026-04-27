@@ -47,6 +47,8 @@ enum GraphCommands {
     Build(GraphBuildArgs),
     /// Incrementally update graph from previous HEAD
     Update(GraphBuildArgs),
+    /// Compute postprocess artifacts (god-nodes, etc.)
+    Postprocess(GraphPostprocessArgs),
     /// Show graph store status
     Status(GraphStatusArgs),
     /// Verify graph store integrity
@@ -66,6 +68,17 @@ struct GraphBuildArgs {
     /// Custom grammar directory
     #[arg(long)]
     grammar_path: Option<PathBuf>,
+
+    /// Suppress main output
+    #[arg(long, short)]
+    quiet: bool,
+}
+
+#[derive(Args)]
+struct GraphPostprocessArgs {
+    /// Repository root
+    #[arg(long, default_value = ".")]
+    repo_root: PathBuf,
 
     /// Suppress main output
     #[arg(long, short)]
@@ -248,6 +261,18 @@ fn run_graph(args: GraphArgs) -> Result<()> {
             let result = context_graph::graph_clean(&clean_args.repo_root)?;
             let json = context_graph::render_json(&result)?;
             std::io::stdout().write_all(json.as_bytes())?;
+            Ok(())
+        }
+        GraphCommands::Postprocess(postprocess_args) => {
+            let opts = context_graph::GraphPostprocessOptions {
+                repo_root: postprocess_args.repo_root,
+                quiet: postprocess_args.quiet,
+            };
+            let result = context_graph::graph_postprocess(&opts)?;
+            if !opts.quiet {
+                let json = context_graph::render_json(&result)?;
+                std::io::stdout().write_all(json.as_bytes())?;
+            }
             Ok(())
         }
     }
