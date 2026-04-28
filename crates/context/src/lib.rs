@@ -13,6 +13,7 @@ pub mod pagerank;
 pub mod protocol;
 pub mod schema;
 pub mod sexpr;
+pub mod snapshot_cache;
 pub mod symbols;
 
 pub use bundle::{BundleOptions, BundleOutput, OmissionReason, bundle_chunks};
@@ -29,6 +30,7 @@ pub use graph::{
 pub use graph::diff;
 pub use identity::{StableId, match_chunks};
 pub use invalidation::{invalidate_edits, invalidate_snapshot};
+pub use snapshot_cache::{CachedSnapshot, SnapshotCache};
 pub use schema::{
     ByteRange, ChunkId, ChunkRecord, CompactChunkRecord, CompactFileResult, CompactOmittedRecord,
     CompactOutput, Confidence, ContextOutput, Diagnostic, DiagnosticCode, DiagnosticLevel,
