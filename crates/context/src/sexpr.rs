@@ -424,6 +424,301 @@ fn invalidation_to_sexpr_inner(
     Ok(())
 }
 
+/// Serialize a compact output to canonical S-expression bytes.
+pub fn compact_to_sexpr(output: &crate::schema::CompactOutput) -> std::io::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    compact_to_sexpr_inner(&mut buf, output, 0)?;
+    buf.push(b'\n');
+    Ok(buf)
+}
+
+fn compact_to_sexpr_inner(
+    w: &mut impl std::io::Write,
+    output: &crate::schema::CompactOutput,
+    depth: usize,
+) -> std::io::Result<()> {
+    indent(w, depth)?;
+    write!(w, "(compaction")?;
+    write!(w, "\n")?;
+
+    // Schema version from meta
+    indent(w, depth + 1)?;
+    write!(
+        w,
+        "(schema_version {})",
+        escape_string(&output.meta.schema_version)
+    )?;
+    write!(w, "\n")?;
+
+    // Files
+    indent(w, depth + 1)?;
+    write!(w, "(files")?;
+    if output.files.is_empty() {
+        write!(w, ")")?;
+    } else {
+        for file in &output.files {
+            write!(w, "\n")?;
+            serialize_compact_file(w, file, depth + 2)?;
+        }
+        write!(w, "\n")?;
+        indent(w, depth + 1)?;
+        write!(w, ")")?;
+    }
+    write!(w, "\n")?;
+
+    // Top-level omitted
+    indent(w, depth + 1)?;
+    write!(w, "(omitted")?;
+    if output.omitted.is_empty() {
+        write!(w, ")")?;
+    } else {
+        let mut omitted = output.omitted.clone();
+        omitted.sort_by(|a, b| a.stable_id.cmp(&b.stable_id));
+        for om in &omitted {
+            write!(w, "\n")?;
+            serialize_compact_omitted(w, om, depth + 2)?;
+        }
+        write!(w, "\n")?;
+        indent(w, depth + 1)?;
+        write!(w, ")")?;
+    }
+    write!(w, "\n")?;
+
+    // Token stats
+    indent(w, depth + 1)?;
+    write!(w, "(original_tokens {})", output.original_tokens)?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(compacted_tokens {})", output.compacted_tokens)?;
+    write!(w, "\n")?;
+
+    // Meta
+    indent(w, depth + 1)?;
+    write!(w, "(meta")?;
+    write!(w, "\n")?;
+    indent(w, depth + 2)?;
+    write!(
+        w,
+        "(schema_version {})",
+        escape_string(&output.meta.schema_version)
+    )?;
+    write!(w, "\n")?;
+    if let Some(path) = &output.meta.source_path {
+        indent(w, depth + 2)?;
+        write!(w, "(source_path {})", escape_string(&path.to_string_lossy()))?;
+        write!(w, "\n")?;
+    }
+    indent(w, depth + 2)?;
+    write!(w, "(total_chunks {})", output.meta.total_chunks)?;
+    write!(w, "\n")?;
+    indent(w, depth + 2)?;
+    write!(
+        w,
+        "(total_estimated_tokens {})",
+        output.meta.total_estimated_tokens
+    )?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, ")")?;
+
+    write!(w, "\n")?;
+    indent(w, depth)?;
+    write!(w, ")")?;
+    Ok(())
+}
+
+fn serialize_compact_file(
+    w: &mut impl std::io::Write,
+    file: &crate::schema::CompactFileResult,
+    depth: usize,
+) -> std::io::Result<()> {
+    indent(w, depth)?;
+    write!(w, "(file")?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(path {})", escape_string(&file.path.to_string_lossy()))?;
+    write!(w, "\n")?;
+
+    // Preserved chunks (sorted by stable_id)
+    let mut preserved = file.preserved.clone();
+    preserved.sort_by(|a, b| a.stable_id.cmp(&b.stable_id));
+    indent(w, depth + 1)?;
+    write!(w, "(preserved")?;
+    if preserved.is_empty() {
+        write!(w, ")")?;
+    } else {
+        for chunk in &preserved {
+            write!(w, "\n")?;
+            serialize_compact_chunk(w, chunk, depth + 2)?;
+        }
+        write!(w, "\n")?;
+        indent(w, depth + 1)?;
+        write!(w, ")")?;
+    }
+    write!(w, "\n")?;
+
+    // Signatures-only chunks (sorted by stable_id)
+    let mut signatures_only: Vec<_> = file.signatures_only.iter().collect();
+    signatures_only.sort_by(|a, b| {
+        let a_id = match a {
+            crate::schema::CompactChunkRecord::Preserved { chunk } => &chunk.stable_id,
+            crate::schema::CompactChunkRecord::SignatureOnly { chunk, .. } => &chunk.stable_id,
+        };
+        let b_id = match b {
+            crate::schema::CompactChunkRecord::Preserved { chunk } => &chunk.stable_id,
+            crate::schema::CompactChunkRecord::SignatureOnly { chunk, .. } => &chunk.stable_id,
+        };
+        a_id.cmp(b_id)
+    });
+    indent(w, depth + 1)?;
+    write!(w, "(signatures_only")?;
+    if signatures_only.is_empty() {
+        write!(w, ")")?;
+    } else {
+        for record in &signatures_only {
+            write!(w, "\n")?;
+            serialize_compact_signature(w, record, depth + 2)?;
+        }
+        write!(w, "\n")?;
+        indent(w, depth + 1)?;
+        write!(w, ")")?;
+    }
+    write!(w, "\n")?;
+
+    // File-level omitted
+    let mut omitted = file.omitted.clone();
+    omitted.sort_by(|a, b| a.stable_id.cmp(&b.stable_id));
+    indent(w, depth + 1)?;
+    write!(w, "(omitted")?;
+    if omitted.is_empty() {
+        write!(w, ")")?;
+    } else {
+        for om in &omitted {
+            write!(w, "\n")?;
+            serialize_compact_omitted(w, om, depth + 2)?;
+        }
+        write!(w, "\n")?;
+        indent(w, depth + 1)?;
+        write!(w, ")")?;
+    }
+    write!(w, "\n")?;
+
+    // File token stats
+    indent(w, depth + 1)?;
+    write!(w, "(original_tokens {})", file.original_tokens)?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(compacted_tokens {})", file.compacted_tokens)?;
+
+    write!(w, "\n")?;
+    indent(w, depth)?;
+    write!(w, ")")?;
+    Ok(())
+}
+
+fn serialize_compact_chunk(
+    w: &mut impl std::io::Write,
+    chunk: &crate::schema::ChunkRecord,
+    depth: usize,
+) -> std::io::Result<()> {
+    indent(w, depth)?;
+    write!(w, "(chunk")?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(stable_id {})", escape_string(&chunk.stable_id.0))?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(kind {})", escape_string(&chunk.kind))?;
+    write!(w, "\n")?;
+    if let Some(name) = &chunk.name {
+        indent(w, depth + 1)?;
+        write!(w, "(name {})", escape_string(name))?;
+        write!(w, "\n")?;
+    }
+    indent(w, depth + 1)?;
+    write!(w, "(byte_range {} {})", chunk.byte_range.start, chunk.byte_range.end)?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(estimated_tokens {})", chunk.estimated_tokens)?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(confidence {})", escape_string(confidence_str(chunk.confidence)))?;
+    write!(w, "\n")?;
+    indent(w, depth)?;
+    write!(w, ")")?;
+    Ok(())
+}
+
+fn serialize_compact_signature(
+    w: &mut impl std::io::Write,
+    record: &crate::schema::CompactChunkRecord,
+    depth: usize,
+) -> std::io::Result<()> {
+    match record {
+        crate::schema::CompactChunkRecord::Preserved { chunk } => {
+            serialize_compact_chunk(w, chunk, depth)?;
+        }
+        crate::schema::CompactChunkRecord::SignatureOnly { chunk, signature } => {
+            indent(w, depth)?;
+            write!(w, "(signature")?;
+            write!(w, "\n")?;
+            indent(w, depth + 1)?;
+            write!(w, "(stable_id {})", escape_string(&chunk.stable_id.0))?;
+            write!(w, "\n")?;
+            indent(w, depth + 1)?;
+            write!(w, "(kind {})", escape_string(&chunk.kind))?;
+            write!(w, "\n")?;
+            if let Some(name) = &chunk.name {
+                indent(w, depth + 1)?;
+                write!(w, "(name {})", escape_string(name))?;
+                write!(w, "\n")?;
+            }
+            indent(w, depth + 1)?;
+            write!(w, "(signature {})", escape_string(signature))?;
+            write!(w, "\n")?;
+            indent(w, depth + 1)?;
+            write!(w, "(estimated_tokens {})", chunk.estimated_tokens)?;
+            write!(w, "\n")?;
+            indent(w, depth + 1)?;
+            write!(w, "(confidence {})", escape_string(confidence_str(chunk.confidence)))?;
+            write!(w, "\n")?;
+            indent(w, depth)?;
+            write!(w, ")")?;
+        }
+    }
+    Ok(())
+}
+
+fn serialize_compact_omitted(
+    w: &mut impl std::io::Write,
+    om: &crate::schema::CompactOmittedRecord,
+    depth: usize,
+) -> std::io::Result<()> {
+    indent(w, depth)?;
+    write!(w, "(omitted")?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(stable_id {})", escape_string(&om.stable_id.0))?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(kind {})", escape_string(&om.kind))?;
+    write!(w, "\n")?;
+    if let Some(name) = &om.name {
+        indent(w, depth + 1)?;
+        write!(w, "(name {})", escape_string(name))?;
+        write!(w, "\n")?;
+    }
+    indent(w, depth + 1)?;
+    write!(w, "(reason {})", escape_string(&om.reason))?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(estimated_tokens {})", om.estimated_tokens)?;
+    write!(w, "\n")?;
+    indent(w, depth)?;
+    write!(w, ")")?;
+    Ok(())
+}
+
 fn confidence_str(c: crate::schema::Confidence) -> &'static str {
     match c {
         crate::schema::Confidence::Exact => "exact",

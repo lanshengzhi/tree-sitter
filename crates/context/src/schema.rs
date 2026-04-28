@@ -275,6 +275,63 @@ pub struct ContextOutput {
     pub meta: OutputMeta,
 }
 
+/// A compacted chunk record: either preserved (full content) or signature-only.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", tag = "status")]
+pub enum CompactChunkRecord {
+    /// Full chunk preserved (affected, added, removed, or anonymous unchanged).
+    Preserved {
+        #[serde(flatten)]
+        chunk: ChunkRecord,
+    },
+    /// Signature-only for unchanged named chunks.
+    SignatureOnly {
+        #[serde(flatten)]
+        chunk: ChunkRecord,
+        /// Extracted signature text (e.g., function declaration line).
+        signature: String,
+    },
+}
+
+/// Metadata about an omitted chunk during compaction.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct CompactOmittedRecord {
+    pub stable_id: StableId,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub reason: String,
+    pub estimated_tokens: usize,
+}
+
+/// Result for a single file after compaction.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactFileResult {
+    pub path: PathBuf,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preserved: Vec<ChunkRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub signatures_only: Vec<CompactChunkRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub omitted: Vec<CompactOmittedRecord>,
+    pub original_tokens: usize,
+    pub compacted_tokens: usize,
+}
+
+/// Top-level output from semantic compaction.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactOutput {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<CompactFileResult>,
+    pub original_tokens: usize,
+    pub compacted_tokens: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub omitted: Vec<CompactOmittedRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<Diagnostic>,
+    pub meta: OutputMeta,
+}
+
 /// Output from an invalidation pass (snapshot diff or edit stream).
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct InvalidationOutput {
