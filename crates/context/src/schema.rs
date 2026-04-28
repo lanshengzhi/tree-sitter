@@ -187,6 +187,10 @@ pub struct ChunkRecord {
     /// Parent chunk identifier, if this chunk is nested inside another chunk.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<ChunkId>,
+    /// Hash of the node's text excluding body children (signature).
+    pub signature_hash: String,
+    /// Hash of the body children text (or same as signature_hash if no body exists).
+    pub body_hash: String,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -440,6 +444,8 @@ mod tests {
             confidence: Confidence::Exact,
             depth: 0,
             parent: None,
+            signature_hash: "sig_hash".to_string(),
+            body_hash: "body_hash".to_string(),
         });
         output.push_diagnostic(Diagnostic::info("test diagnostic"));
 
@@ -464,7 +470,9 @@ mod tests {
         "end": 11
       },
       "estimated_tokens": 3,
-      "confidence": "exact"
+      "confidence": "exact",
+      "signature_hash": "sig_hash",
+      "body_hash": "body_hash"
     }
   ],
   "symbols": [],
@@ -508,6 +516,8 @@ mod tests {
             confidence: Confidence::Medium,
             depth: 0,
             parent: None,
+            signature_hash: "sig_hash".to_string(),
+            body_hash: "body_hash".to_string(),
         };
         let output = InvalidationOutput {
             records: vec![InvalidationRecord {
@@ -556,7 +566,9 @@ mod tests {
           "end": 11
         },
         "estimated_tokens": 3,
-        "confidence": "medium"
+        "confidence": "medium",
+        "signature_hash": "sig_hash",
+        "body_hash": "body_hash"
       },
       "reason": "changed_range_overlap",
       "match_strategy": "textual_range_overlap",
@@ -585,7 +597,9 @@ mod tests {
         "end": 11
       },
       "estimated_tokens": 3,
-      "confidence": "medium"
+      "confidence": "medium",
+      "signature_hash": "sig_hash",
+      "body_hash": "body_hash"
     }
   ],
   "added": [],

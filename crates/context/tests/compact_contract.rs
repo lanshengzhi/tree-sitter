@@ -215,6 +215,8 @@ fn create_test_chunk(name: &str, stable_id: &str, tokens: usize) -> ChunkRecord 
         confidence: Confidence::Exact,
         depth: 0,
         parent: None,
+        signature_hash: "sig_hash".to_string(),
+        body_hash: "body_hash".to_string(),
     }
 }
 

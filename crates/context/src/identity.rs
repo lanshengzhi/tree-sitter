@@ -45,22 +45,22 @@ impl StableId {
 ///
 /// This is intentionally explicit instead of using `DefaultHasher`, whose
 /// output is not a public stability contract.
-struct StableDigest(u128);
+pub(crate) struct StableDigest(u128);
 
 impl StableDigest {
     const OFFSET: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
     const PRIME: u128 = 0x0000_0000_0100_0000_0000_0000_0000_013b;
 
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self(Self::OFFSET)
     }
 
-    fn write_field(&mut self, bytes: &[u8]) {
+    pub(crate) fn write_field(&mut self, bytes: &[u8]) {
         self.write_bytes(&(bytes.len() as u64).to_le_bytes());
         self.write_bytes(bytes);
     }
 
-    fn write_optional_field(&mut self, bytes: Option<&[u8]>) {
+    pub(crate) fn write_optional_field(&mut self, bytes: Option<&[u8]>) {
         match bytes {
             Some(bytes) => {
                 self.write_bytes(&[1]);
@@ -70,14 +70,14 @@ impl StableDigest {
         }
     }
 
-    fn write_bytes(&mut self, bytes: &[u8]) {
+    pub(crate) fn write_bytes(&mut self, bytes: &[u8]) {
         for byte in bytes {
             self.0 ^= u128::from(*byte);
             self.0 = self.0.wrapping_mul(Self::PRIME);
         }
     }
 
-    const fn finish(self) -> u128 {
+    pub(crate) const fn finish(self) -> u128 {
         self.0
     }
 }
@@ -171,6 +171,8 @@ mod tests {
             stable_id,
             depth: 0,
             parent: None,
+            signature_hash: "sig_hash".to_string(),
+            body_hash: "body_hash".to_string(),
         }
     }
 
