@@ -158,6 +158,8 @@ mod tests {
             confidence: Confidence::Exact,
             depth: 0,
             parent: None,
+            signature_hash: "sig_hash".to_string(),
+            body_hash: "body_hash".to_string(),
         }
     }
 
@@ -250,7 +252,9 @@ mod tests {
         "end": 400
       },
       "estimated_tokens": 100,
-      "confidence": "exact"
+      "confidence": "exact",
+      "signature_hash": "sig_hash",
+      "body_hash": "body_hash"
     }
   ],
   "omitted": [
@@ -270,7 +274,9 @@ mod tests {
           "end": 2000
         },
         "estimated_tokens": 500,
-        "confidence": "exact"
+        "confidence": "exact",
+        "signature_hash": "sig_hash",
+        "body_hash": "body_hash"
       },
       "reason": "over_budget"
     }

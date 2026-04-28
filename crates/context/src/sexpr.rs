@@ -1288,6 +1288,8 @@ mod tests {
             confidence: Confidence::Exact,
             depth: 0,
             parent: None,
+            signature_hash: "sig_hash".to_string(),
+            body_hash: "body_hash".to_string(),
         };
 
         let chunk2 = ChunkRecord {
@@ -1305,6 +1307,8 @@ mod tests {
             confidence: Confidence::High,
             depth: 0,
             parent: None,
+            signature_hash: "sig_hash".to_string(),
+            body_hash: "body_hash".to_string(),
         };
 
         let output = InvalidationOutput {
@@ -1419,6 +1423,8 @@ mod tests {
             confidence: Confidence::Exact,
             depth: 0,
             parent: None,
+            signature_hash: "sig_hash".to_string(),
+            body_hash: "body_hash".to_string(),
         };
 
         let chunk_a = ChunkRecord {
@@ -1436,6 +1442,8 @@ mod tests {
             confidence: Confidence::Exact,
             depth: 0,
             parent: None,
+            signature_hash: "sig_hash".to_string(),
+            body_hash: "body_hash".to_string(),
         };
 
         let output = InvalidationOutput {

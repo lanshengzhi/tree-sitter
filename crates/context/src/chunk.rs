@@ -133,6 +133,8 @@ impl Chunker<'_> {
             &byte_range,
         );
 
+        let (signature_hash, body_hash) = compute_signature_body_hashes(node, self.source);
+
         self.chunks.push(ChunkRecord {
             id: id.clone(),
             stable_id,
@@ -143,10 +145,86 @@ impl Chunker<'_> {
             confidence: self.confidence,
             depth,
             parent,
+            signature_hash,
+            body_hash,
         });
 
         Some(id)
     }
+}
+
+/// Compute signature and body hashes for a syntax node.
+///
+/// `signature_hash` = hash of node text excluding body children.
+/// `body_hash` = hash of body children text (or same as signature_hash if no body exists).
+fn compute_signature_body_hashes(node: Node, source: &[u8]) -> (String, String) {
+    use crate::identity::StableDigest;
+
+    let mut body_children: Vec<Node> = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if is_body_child(child) {
+            body_children.push(child);
+        }
+    }
+
+    if body_children.is_empty() {
+        // No body children: signature == body == hash of full node text
+        let full_text = &source[node.start_byte()..node.end_byte()];
+        let mut digest = StableDigest::new();
+        digest.write_field(full_text);
+        let hash = format!("{:032x}", digest.finish());
+        return (hash.clone(), hash);
+    }
+
+    // Collect body byte ranges
+    let body_ranges: Vec<std::ops::Range<usize>> = body_children
+        .iter()
+        .map(|child| child.start_byte()..child.end_byte())
+        .collect();
+
+    // Build signature text (full text minus body ranges)
+    let mut sig_bytes: Vec<u8> = Vec::new();
+    let mut last_end = node.start_byte();
+    for range in &body_ranges {
+        sig_bytes.extend_from_slice(&source[last_end..range.start]);
+        last_end = range.end;
+    }
+    sig_bytes.extend_from_slice(&source[last_end..node.end_byte()]);
+
+    // Hash signature
+    let mut sig_digest = StableDigest::new();
+    sig_digest.write_field(&sig_bytes);
+    let signature_hash = format!("{:032x}", sig_digest.finish());
+
+    // Build body text
+    let mut body_bytes: Vec<u8> = Vec::new();
+    for range in &body_ranges {
+        body_bytes.extend_from_slice(&source[range.start..range.end]);
+    }
+
+    // Hash body
+    let mut body_digest = StableDigest::new();
+    body_digest.write_field(&body_bytes);
+    let body_hash = format!("{:032x}", body_digest.finish());
+
+    (signature_hash, body_hash)
+}
+
+/// Heuristic to identify body children of a syntax node.
+fn is_body_child(node: Node) -> bool {
+    let kind = node.kind();
+    let field_name = node.parent().and_then(|p| {
+        let child_index = p
+            .children(&mut p.walk())
+            .position(|c| c.id() == node.id())?;
+        p.field_name_for_child(child_index as u32)
+    });
+
+    matches!(field_name, Some("body"))
+        || kind.ends_with("_body")
+        || kind == "block"
+        || kind == "statement_block"
 }
 
 fn is_chunk_boundary_kind(kind: &str) -> bool {
@@ -274,5 +352,95 @@ mod tests {
                 .iter()
                 .all(|chunk| chunk.confidence == Confidence::Low)
         );
+    }
+
+    #[test]
+    fn function_with_body_has_different_signature_and_body_hashes() {
+        let mut parser = rust_parser();
+        let source = b"fn foo() { let x = 1; }";
+        let tree = parser.parse(source, None).unwrap();
+
+        let output = chunks_for_tree(
+            &tree,
+            Path::new("test.rs"),
+            source,
+            &ChunkOptions::default(),
+        );
+
+        assert_eq!(output.chunks.len(), 1);
+        let chunk = &output.chunks[0];
+        assert_ne!(
+            chunk.signature_hash, chunk.body_hash,
+            "function with body should have different signature and body hashes"
+        );
+    }
+
+    #[test]
+    fn type_alias_without_body_has_equal_hashes() {
+        let mut parser = rust_parser();
+        let source = b"type Foo = i32;";
+        let tree = parser.parse(source, None).unwrap();
+
+        let output = chunks_for_tree(
+            &tree,
+            Path::new("test.rs"),
+            source,
+            &ChunkOptions::default(),
+        );
+
+        assert_eq!(output.chunks.len(), 1);
+        let chunk = &output.chunks[0];
+        assert_eq!(
+            chunk.signature_hash, chunk.body_hash,
+            "type alias without body children should have signature_hash == body_hash"
+        );
+    }
+
+    #[test]
+    fn nested_function_body_excluded_from_signature() {
+        let mut parser = rust_parser();
+        let source = b"fn outer() { fn inner() { let x = 1; } }";
+        let tree = parser.parse(source, None).unwrap();
+
+        let output = chunks_for_tree(
+            &tree,
+            Path::new("test.rs"),
+            source,
+            &ChunkOptions::default(),
+        );
+
+        assert_eq!(output.chunks.len(), 2);
+        let outer = output.chunks.iter().find(|c| c.name.as_deref() == Some("outer")).unwrap();
+        let inner = output.chunks.iter().find(|c| c.name.as_deref() == Some("inner")).unwrap();
+
+        assert_ne!(
+            outer.signature_hash, outer.body_hash,
+            "outer function should have different signature and body hashes"
+        );
+        assert_ne!(
+            inner.signature_hash, inner.body_hash,
+            "inner function should have different signature and body hashes"
+        );
+    }
+
+    #[test]
+    fn hash_fields_roundtrip_through_serialization() {
+        let mut parser = rust_parser();
+        let source = b"fn foo() { let x = 1; }";
+        let tree = parser.parse(source, None).unwrap();
+
+        let output = chunks_for_tree(
+            &tree,
+            Path::new("test.rs"),
+            source,
+            &ChunkOptions::default(),
+        );
+
+        let chunk = &output.chunks[0];
+        let json = serde_json::to_string(chunk).unwrap();
+        let deserialized: crate::schema::ChunkRecord = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(chunk.signature_hash, deserialized.signature_hash);
+        assert_eq!(chunk.body_hash, deserialized.body_hash);
     }
 }
