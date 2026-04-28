@@ -233,6 +233,24 @@ pub enum InvalidationStatus {
     Unchanged,
 }
 
+/// Granular change type for affected chunks (signature vs body).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeType {
+    BodyChanged,
+    SignatureChanged,
+    BothChanged,
+    Added,
+    Removed,
+    Unchanged,
+}
+
+impl Default for ChangeType {
+    fn default() -> Self {
+        Self::Unchanged
+    }
+}
+
 /// Evidence used to match or classify a chunk during invalidation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -268,6 +286,9 @@ pub struct InvalidationRecord {
     pub confidence: Confidence,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub changed_ranges: Vec<ByteRange>,
+    /// Granular change classification (signature vs body).
+    #[serde(default)]
+    pub change_type: ChangeType,
 }
 
 /// Canonical output for the context engine.
@@ -528,6 +549,7 @@ mod tests {
                 match_strategy: MatchStrategy::TextualRangeOverlap,
                 confidence: Confidence::Medium,
                 changed_ranges: vec![ByteRange { start: 0, end: 11 }],
+                change_type: ChangeType::BothChanged,
             }],
             affected: vec![chunk],
             added: vec![],
@@ -578,7 +600,8 @@ mod tests {
           "start": 0,
           "end": 11
         }
-      ]
+      ],
+      "change_type": "both_changed"
     }
   ],
   "affected": [

@@ -161,8 +161,12 @@ struct InvalidateArgs {
     new_path: PathBuf,
 
     /// Path to the old (previous) file
-    #[arg(long, required = true)]
-    old: PathBuf,
+    #[arg(long)]
+    old: Option<PathBuf>,
+
+    /// Snapshot ID to retrieve old state from cache
+    #[arg(long)]
+    since_snapshot_id: Option<String>,
 
     /// Output format (sexpr or json)
     #[arg(long, default_value = "sexpr")]
@@ -288,6 +292,7 @@ fn run_invalidate(args: InvalidateArgs) -> Result<()> {
     let opts = InvalidateOptions {
         new_path: args.new_path,
         old_path: args.old,
+        since_snapshot_id: args.since_snapshot_id,
         format,
         quiet: args.quiet,
     };
