@@ -105,6 +105,12 @@ fn serialize_ast_cell(w: &mut impl Write, cell: &AstCell, depth: usize) -> io::R
     indent(w, depth + 1)?;
     write!(w, "(confidence {})", cell.confidence.as_str())?;
     write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(signature_hash {})", escape_string(&cell.signature_hash))?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(body_hash {})", escape_string(&cell.body_hash))?;
+    write!(w, "\n")?;
     indent(w, depth)?;
     write!(w, ")")?;
     Ok(())
@@ -644,6 +650,12 @@ fn serialize_compact_chunk(
     indent(w, depth + 1)?;
     write!(w, "(confidence {})", escape_string(confidence_str(chunk.confidence)))?;
     write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(signature_hash {})", escape_string(&chunk.signature_hash))?;
+    write!(w, "\n")?;
+    indent(w, depth + 1)?;
+    write!(w, "(body_hash {})", escape_string(&chunk.body_hash))?;
+    write!(w, "\n")?;
     indent(w, depth)?;
     write!(w, ")")?;
     Ok(())
@@ -1026,6 +1038,8 @@ mod tests {
                     byte_range: (0, 23),
                     estimated_tokens: 6,
                     confidence: Confidence::Exact,
+                    signature_hash: "sig_hash".to_string(),
+                    body_hash: "body_hash".to_string(),
                 },
                 AstCell {
                     stable_id: "named:def".to_string(),
@@ -1034,6 +1048,8 @@ mod tests {
                     byte_range: (25, 50),
                     estimated_tokens: 4,
                     confidence: Confidence::Exact,
+                    signature_hash: "sig_hash".to_string(),
+                    body_hash: "body_hash".to_string(),
                 },
             ],
             omitted: vec![],
@@ -1059,6 +1075,8 @@ mod tests {
                     byte_range: (0, 10),
                     estimated_tokens: 2,
                     confidence: Confidence::Exact,
+                    signature_hash: "sig_hash".to_string(),
+                    body_hash: "body_hash".to_string(),
                 },
                 AstCell {
                     stable_id: "named:a".to_string(),
@@ -1067,6 +1085,8 @@ mod tests {
                     byte_range: (10, 20),
                     estimated_tokens: 2,
                     confidence: Confidence::Exact,
+                    signature_hash: "sig_hash".to_string(),
+                    body_hash: "body_hash".to_string(),
                 },
             ],
             omitted: vec![
@@ -1172,6 +1192,8 @@ mod tests {
                 byte_range: (0, 10),
                 estimated_tokens: 2,
                 confidence: Confidence::Exact,
+                signature_hash: "sig_hash".to_string(),
+                body_hash: "body_hash".to_string(),
             }],
             omitted: vec![],
             provenance: Provenance::new("sig_tier_bundle", Confidence::Exact),

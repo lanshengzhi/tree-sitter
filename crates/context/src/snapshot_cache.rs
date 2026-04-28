@@ -32,6 +32,20 @@ impl SnapshotCache {
     /// Open or create the snapshot cache at `repo_root/.tree-sitter-context-mcp/cache/`.
     pub fn open(repo_root: impl AsRef<Path>) -> std::io::Result<Self> {
         let root = repo_root.as_ref().join(crate::graph::store::STORE_DIR_NAME).join(CACHE_DIR_NAME);
+
+        // Guard against the case where the store directory exists but is a file.
+        if let Some(parent) = root.parent() {
+            if parent.exists() && !parent.is_dir() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    format!(
+                        "snapshot store path exists but is not a directory: {}",
+                        parent.display()
+                    ),
+                ));
+            }
+        }
+
         fs::create_dir_all(&root)?;
         Ok(Self { root })
     }

@@ -56,7 +56,7 @@ pub fn compact_files(
     paths: &[PathBuf],
     old_contents: &HashMap<PathBuf, Vec<u8>>,
     languages: &HashMap<PathBuf, FileLanguage>,
-    tags_configs: &HashMap<PathBuf, TagsConfiguration>,
+    tags_configs: &HashMap<PathBuf, &TagsConfiguration>,
     opts: &CompactOptions,
 ) -> Result<CompactOutput> {
     let mut files = Vec::new();
@@ -100,7 +100,7 @@ pub fn compact_files(
             }
         };
 
-        let tags_config = tags_configs.get(path);
+        let tags_config = tags_configs.get(path).copied();
 
         match compact_single_file(path, &old_source, &new_source, file_lang, tags_config, opts) {
             Ok((file_result, file_diag)) => {
@@ -398,8 +398,9 @@ mod tests {
         let mut languages = HashMap::new();
         languages.insert(path.clone(), rust_file_lang());
 
+        let tags_config = rust_tags_config();
         let mut tags_configs = HashMap::new();
-        tags_configs.insert(path.clone(), rust_tags_config());
+        tags_configs.insert(path.clone(), &tags_config);
 
         let opts = CompactOptions {
             budget: None,
@@ -434,8 +435,9 @@ mod tests {
         let mut languages = HashMap::new();
         languages.insert(path.clone(), rust_file_lang());
 
+        let tags_config = rust_tags_config();
         let mut tags_configs = HashMap::new();
-        tags_configs.insert(path.clone(), rust_tags_config());
+        tags_configs.insert(path.clone(), &tags_config);
 
         let opts = CompactOptions {
             budget: None,
@@ -470,8 +472,9 @@ mod tests {
         let mut languages = HashMap::new();
         languages.insert(path.clone(), rust_file_lang());
 
+        let tags_config = rust_tags_config();
         let mut tags_configs = HashMap::new();
-        tags_configs.insert(path.clone(), rust_tags_config());
+        tags_configs.insert(path.clone(), &tags_config);
 
         let opts = CompactOptions {
             budget: None,
@@ -506,8 +509,9 @@ mod tests {
         let mut languages = HashMap::new();
         languages.insert(path.clone(), rust_file_lang());
 
+        let tags_config = rust_tags_config();
         let mut tags_configs = HashMap::new();
-        tags_configs.insert(path.clone(), rust_tags_config());
+        tags_configs.insert(path.clone(), &tags_config);
 
         let opts = CompactOptions {
             budget: Some(5), // Very tight budget

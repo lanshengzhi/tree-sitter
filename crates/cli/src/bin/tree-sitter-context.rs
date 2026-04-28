@@ -651,6 +651,8 @@ fn run_bundle(args: BundleArgs) -> Result<()> {
                             tree_sitter_context::schema::Confidence::Medium => Confidence::Medium,
                             tree_sitter_context::schema::Confidence::Low => Confidence::Low,
                         },
+                        signature_hash: chunk.signature_hash.clone(),
+                        body_hash: chunk.body_hash.clone(),
                     }];
 
                     let omitted: Vec<OmittedChunk> = bundle

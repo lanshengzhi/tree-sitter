@@ -86,6 +86,8 @@ pub struct AstCell {
     pub byte_range: (usize, usize),
     pub estimated_tokens: usize,
     pub confidence: Confidence,
+    pub signature_hash: String,
+    pub body_hash: String,
 }
 
 /// A chunk that was omitted from the bundle.
