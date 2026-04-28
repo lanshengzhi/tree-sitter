@@ -4,4 +4,4 @@ import type { Confidence } from "./Confidence";
 /**
  * A single AST cell included in a bundle.
  */
-export type AstCell = { stable_id: string, kind: string, name: string | null, byte_range: [number, number], estimated_tokens: number, confidence: Confidence, };
+export type AstCell = { stable_id: string, kind: string, name: string | null, byte_range: [number, number], estimated_tokens: number, confidence: Confidence, signature_hash: string, body_hash: string, };

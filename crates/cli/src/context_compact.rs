@@ -87,10 +87,9 @@ pub fn run_compact(opts: &CompactCliOptions) -> Result<()> {
             .with_context(|| format!("failed to read {}", old_path.display()))?;
         old_contents.insert(path.clone(), old_source);
 
-        // Get language for this file
-        let language = loader
+        // Get language configuration for this file
+        let (language, language_config) = loader
             .language_configuration_for_file_name(path)?
-            .map(|(lang, _)| lang)
             .ok_or_else(|| {
                 anyhow!(
                     "no_language: no language grammar for {}",
@@ -100,21 +99,17 @@ pub fn run_compact(opts: &CompactCliOptions) -> Result<()> {
 
         languages.insert(
             path.clone(),
-            FileLanguage { language },
+            FileLanguage { language: language.clone() },
         );
 
-        // Note: TagsConfiguration doesn't implement Clone, so we skip tags-based
-        // signature extraction in the CLI path. The compact logic falls back to
-        // first-line heuristic, which is acceptable for v1.
-        // Future: restructure to support tags configs without Clone requirement.
+        if let Some(tags_config) = language_config.tags_config(language)? {
+            tags_configs.insert(path.clone(), tags_config);
+        }
     }
 
     let compact_opts = CompactOptions {
         budget: opts.budget,
     };
-
-    // Empty tags configs map since we can't clone TagsConfiguration
-    let tags_configs = HashMap::new();
 
     let output = compact_files(
         &opts.paths,
