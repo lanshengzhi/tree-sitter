@@ -60,6 +60,37 @@ tree-sitter-context bundle src/lib.rs \
 
 This enforces a 500-token included-chunk budget while preserving true estimates for oversized omitted chunks, and guarantees the total result does not exceed 5000 tokens.
 
+## Compact Command
+
+```text
+tree-sitter-context compact <PATHS...> \
+  --old <OLD_DIR> \
+  [--format sexpr|json] \
+  [--budget <N>] \
+  [--quiet]
+```
+
+### Positional Arguments
+
+- `PATHS...`: Paths to new (current) files. Multiple files are processed independently.
+
+### Required Flags
+
+- `--old <OLD_DIR>`: Path to directory containing old file snapshots. Old files are matched by file name.
+
+### Optional Flags
+
+- `--format <format>`: Output format: `sexpr` (default) or `json`.
+- `--budget <N>`: Optional token budget for compacted output. If exceeded, signatures_only chunks are discarded first, then preserved chunks.
+- `--quiet`: Suppresses non-error output.
+
+### Output
+
+- **Success**: Canonical S-expression or JSON with `preserved`, `signatures_only`, `omitted`, and token stats.
+- **Budget exceeded**: Exit code 6 with `budget_exceeded:` prefix if even affected chunks exceed budget.
+
+See `docs/plans/tree-sitter-context-compact-contract.md` for full compact output schema.
+
 ## Output
 
 ### Success (exit 0)
