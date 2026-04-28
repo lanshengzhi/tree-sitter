@@ -749,6 +749,17 @@ fn match_strategy_str(m: crate::schema::MatchStrategy) -> &'static str {
     }
 }
 
+fn change_type_str(c: crate::schema::ChangeType) -> &'static str {
+    match c {
+        crate::schema::ChangeType::BodyChanged => "body_changed",
+        crate::schema::ChangeType::SignatureChanged => "signature_changed",
+        crate::schema::ChangeType::BothChanged => "both_changed",
+        crate::schema::ChangeType::Added => "added",
+        crate::schema::ChangeType::Removed => "removed",
+        crate::schema::ChangeType::Unchanged => "unchanged",
+    }
+}
+
 fn serialize_invalidation_bucket(
     w: &mut impl std::io::Write,
     name: &str,
@@ -820,6 +831,13 @@ fn serialize_invalidation_bucket(
                 w,
                 "(match_strategy {})",
                 escape_string(match_strategy_str(record.match_strategy))
+            )?;
+            write!(w, "\n")?;
+            indent(w, depth + 2)?;
+            write!(
+                w,
+                "(change_type {})",
+                escape_string(change_type_str(record.change_type))
             )?;
             write!(w, "\n")?;
             if !record.changed_ranges.is_empty() {
@@ -1270,7 +1288,7 @@ mod tests {
         use crate::identity::StableId;
         use crate::schema::{
             ByteRange, ChunkId, ChunkRecord, Confidence, Diagnostic, InvalidationOutput,
-            InvalidationReason, InvalidationRecord, InvalidationStatus, MatchStrategy, OutputMeta,
+            ChangeType, InvalidationReason, InvalidationRecord, InvalidationStatus, MatchStrategy, OutputMeta,
         };
 
         let chunk1 = ChunkRecord {
@@ -1321,6 +1339,7 @@ mod tests {
                     match_strategy: MatchStrategy::StableId,
                     confidence: Confidence::Exact,
                     changed_ranges: vec![ByteRange { start: 10, end: 20 }],
+                    change_type: ChangeType::BothChanged,
                 },
                 InvalidationRecord {
                     status: InvalidationStatus::Unchanged,
@@ -1330,6 +1349,7 @@ mod tests {
                     match_strategy: MatchStrategy::StableId,
                     confidence: Confidence::High,
                     changed_ranges: vec![],
+                    change_type: ChangeType::Unchanged,
                 },
             ],
             affected: vec![chunk1.clone()],
@@ -1405,7 +1425,7 @@ mod tests {
         use crate::identity::StableId;
         use crate::schema::{
             ByteRange, ChunkId, ChunkRecord, Confidence, InvalidationOutput,
-            InvalidationReason, InvalidationRecord, InvalidationStatus, MatchStrategy, OutputMeta,
+            ChangeType, InvalidationReason, InvalidationRecord, InvalidationStatus, MatchStrategy, OutputMeta,
         };
 
         let chunk_z = ChunkRecord {
@@ -1456,6 +1476,7 @@ mod tests {
                     match_strategy: MatchStrategy::StableId,
                     confidence: Confidence::Exact,
                     changed_ranges: vec![],
+                    change_type: ChangeType::BothChanged,
                 },
                 InvalidationRecord {
                     status: InvalidationStatus::Affected,
@@ -1465,6 +1486,7 @@ mod tests {
                     match_strategy: MatchStrategy::StableId,
                     confidence: Confidence::Exact,
                     changed_ranges: vec![],
+                    change_type: ChangeType::BothChanged,
                 },
             ],
             affected: vec![chunk_z.clone(), chunk_a.clone()],

@@ -8,7 +8,7 @@ use crate::{
     chunk::{ChunkOptions, chunks_for_tree},
     identity::{MatchResult, match_chunks},
     schema::{
-        ByteRange, Confidence, Diagnostic, InvalidationOutput, InvalidationReason,
+        ByteRange, ChangeType, Confidence, Diagnostic, InvalidationOutput, InvalidationReason,
         InvalidationRecord, InvalidationStatus, MatchStrategy, OutputMeta,
     },
 };
@@ -84,6 +84,7 @@ pub fn invalidate_snapshot(
                     if !overlaps_any(&new.byte_range, &changed_ranges) {
                         output.changed_ranges.push(new.byte_range);
                     }
+                    let change_type = classify_change(&old, &new);
                     output.records.push(InvalidationRecord {
                         status: InvalidationStatus::Affected,
                         chunk: new.clone(),
@@ -95,6 +96,7 @@ pub fn invalidate_snapshot(
                             &new.byte_range,
                             &output.changed_ranges,
                         ),
+                        change_type,
                     });
                     output.affected.push(new);
                 } else {
@@ -106,6 +108,7 @@ pub fn invalidate_snapshot(
                         match_strategy: MatchStrategy::StableId,
                         confidence: new.confidence,
                         changed_ranges: Vec::new(),
+                        change_type: ChangeType::Unchanged,
                     });
                     output.unchanged.push(new);
                 }
@@ -119,6 +122,7 @@ pub fn invalidate_snapshot(
                     match_strategy: MatchStrategy::Unmatched,
                     confidence: old.confidence,
                     changed_ranges: Vec::new(),
+                    change_type: ChangeType::Removed,
                 });
                 output.removed.push(old);
             }
@@ -131,6 +135,7 @@ pub fn invalidate_snapshot(
                     match_strategy: MatchStrategy::Unmatched,
                     confidence: new.confidence,
                     changed_ranges: ranges_overlapping_or_exact(&new.byte_range, &changed_ranges),
+                    change_type: ChangeType::Added,
                 });
                 output.added.push(new);
             }
@@ -159,6 +164,7 @@ pub fn invalidate_snapshot(
                 match_strategy: MatchStrategy::TextualRangeOverlap,
                 confidence: chunk.confidence,
                 changed_ranges: ranges_overlapping_or_exact(&chunk.byte_range, &changed_ranges),
+                change_type: ChangeType::BothChanged,
             });
             output.affected.push(chunk.clone());
         }
@@ -237,6 +243,19 @@ pub fn invalidate_edits(
     ));
 
     Ok(output)
+}
+
+/// Classify the type of change between two matched chunks.
+fn classify_change(old: &crate::schema::ChunkRecord, new: &crate::schema::ChunkRecord) -> ChangeType {
+    let sig_changed = old.signature_hash != new.signature_hash;
+    let body_changed = old.body_hash != new.body_hash;
+
+    match (sig_changed, body_changed) {
+        (true, true) => ChangeType::BothChanged,
+        (true, false) => ChangeType::SignatureChanged,
+        (false, true) => ChangeType::BodyChanged,
+        (false, false) => ChangeType::Unchanged,
+    }
 }
 
 fn overlaps_any(range: &ByteRange, ranges: &[ByteRange]) -> bool {
@@ -596,5 +615,134 @@ mod tests {
             !output.changed_ranges.is_empty(),
             "expected textual snapshot ranges for literal-only change"
         );
+    }
+
+    #[test]
+    fn body_only_change_produces_body_changed() {
+        let mut parser = rust_parser();
+        let old_source = b"fn foo() { let x = 1; }";
+        let new_source = b"fn foo() { let x = 1; let y = 2; }";
+
+        let old_tree = parser.parse(old_source, None).unwrap();
+        let new_tree = parser.parse(new_source, None).unwrap();
+
+        let output = invalidate_snapshot(
+            &old_tree,
+            &new_tree,
+            old_source,
+            new_source,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        assert_eq!(output.records.len(), 1);
+        assert_eq!(output.records[0].change_type, ChangeType::BodyChanged);
+    }
+
+    #[test]
+    fn signature_change_produces_signature_changed() {
+        let mut parser = rust_parser();
+        let old_source = b"fn foo() {}";
+        let new_source = b"fn foo(x: i32) {}";
+
+        let old_tree = parser.parse(old_source, None).unwrap();
+        let new_tree = parser.parse(new_source, None).unwrap();
+
+        let output = invalidate_snapshot(
+            &old_tree,
+            &new_tree,
+            old_source,
+            new_source,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        assert_eq!(output.records.len(), 1);
+        assert_eq!(output.records[0].change_type, ChangeType::SignatureChanged);
+    }
+
+    #[test]
+    fn both_changed_produces_both_changed() {
+        let mut parser = rust_parser();
+        let old_source = b"fn foo() {}";
+        let new_source = b"fn bar(x: i32) { let y = 1; }";
+
+        let old_tree = parser.parse(old_source, None).unwrap();
+        let new_tree = parser.parse(new_source, None).unwrap();
+
+        let output = invalidate_snapshot(
+            &old_tree,
+            &new_tree,
+            old_source,
+            new_source,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        // Name change causes old removed + new added, not matched
+        // So we test a case where stable_id matches but both hashes differ
+        let old_source2 = b"fn foo() { let x = 1; }";
+        let new_source2 = b"fn foo(x: i32) { let y = 2; }";
+
+        let old_tree2 = parser.parse(old_source2, None).unwrap();
+        let new_tree2 = parser.parse(new_source2, None).unwrap();
+
+        let output2 = invalidate_snapshot(
+            &old_tree2,
+            &new_tree2,
+            old_source2,
+            new_source2,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        assert_eq!(output2.records.len(), 1);
+        assert_eq!(output2.records[0].change_type, ChangeType::BothChanged);
+    }
+
+    #[test]
+    fn unchanged_file_produces_unchanged() {
+        let mut parser = rust_parser();
+        let source = b"fn foo() { let x = 1; }";
+
+        let old_tree = parser.parse(source, None).unwrap();
+        let new_tree = parser.parse(source, None).unwrap();
+
+        let output = invalidate_snapshot(
+            &old_tree,
+            &new_tree,
+            source,
+            source,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        assert_eq!(output.records.len(), 1);
+        assert_eq!(output.records[0].change_type, ChangeType::Unchanged);
+    }
+
+    #[test]
+    fn added_removed_functions_produce_correct_change_types() {
+        let mut parser = rust_parser();
+        let old_source = b"fn foo() {}";
+        let new_source = b"fn bar() {}";
+
+        let old_tree = parser.parse(old_source, None).unwrap();
+        let new_tree = parser.parse(new_source, None).unwrap();
+
+        let output = invalidate_snapshot(
+            &old_tree,
+            &new_tree,
+            old_source,
+            new_source,
+            Path::new("test.rs"),
+        )
+        .unwrap();
+
+        assert_eq!(output.records.len(), 2);
+        let removed = output.records.iter().find(|r| r.status == InvalidationStatus::Removed).unwrap();
+        let added = output.records.iter().find(|r| r.status == InvalidationStatus::Added).unwrap();
+        assert_eq!(removed.change_type, ChangeType::Removed);
+        assert_eq!(added.change_type, ChangeType::Added);
     }
 }
