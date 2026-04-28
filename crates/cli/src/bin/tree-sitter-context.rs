@@ -37,6 +37,8 @@ enum Commands {
     Invalidate(InvalidateArgs),
     /// Compact session context by keeping full content for changed chunks and extracting signatures for unchanged chunks
     Compact(CompactArgs),
+    /// Get a structured AST outline of a source file with stable IDs
+    Outline(OutlineArgs),
 }
 
 #[derive(Args)]
@@ -195,6 +197,25 @@ struct CompactArgs {
 }
 
 #[derive(Args)]
+struct OutlineArgs {
+    /// Path to the source file
+    #[arg(index = 1)]
+    path: PathBuf,
+
+    /// Output format (sexpr or json)
+    #[arg(long, default_value = "sexpr")]
+    format: String,
+
+    /// Custom grammar directory
+    #[arg(long)]
+    grammar_path: Option<PathBuf>,
+
+    /// Suppress main output
+    #[arg(long, short)]
+    quiet: bool,
+}
+
+#[derive(Args)]
 struct BundleArgs {
     /// Path to the source file
     #[arg(index = 1)]
@@ -249,6 +270,7 @@ fn run() -> Result<()> {
         Commands::Orientation(args) => run_orientation(args),
         Commands::Invalidate(args) => run_invalidate(args),
         Commands::Compact(args) => run_compact(args),
+        Commands::Outline(args) => run_outline(args),
     }
 }
 
@@ -679,6 +701,44 @@ fn run_bundle(args: BundleArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn run_outline(args: OutlineArgs) -> Result<()> {
+    use tree_sitter_cli::context_outline::{OutlineOptions, OutlineFormat};
+
+    let format = match OutlineFormat::from_str(&args.format) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("invalid_format: {}", e);
+            std::process::exit(5);
+        }
+    };
+
+    let opts = OutlineOptions {
+        path: args.path,
+        format,
+        quiet: args.quiet,
+        grammar_path: args.grammar_path,
+    };
+
+    match tree_sitter_cli::context_outline::run_outline(&opts) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.starts_with("file_not_found:") {
+                eprintln!("{}", msg);
+                std::process::exit(2);
+            } else if msg.starts_with("no_language:") {
+                eprintln!("{}", msg);
+                std::process::exit(3);
+            } else if msg.starts_with("parse_error:") {
+                eprintln!("{}", msg);
+                std::process::exit(4);
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 fn build_loader(grammar_path: Option<&std::path::Path>) -> Result<Loader> {

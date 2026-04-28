@@ -228,6 +228,8 @@ mod tests {
             confidence: Confidence::Exact,
             depth: 0,
             parent: None,
+            signature_hash: "sig_hash".to_string(),
+            body_hash: "body_hash".to_string(),
         }
     }
 }
