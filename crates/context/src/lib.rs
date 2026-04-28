@@ -4,6 +4,7 @@
 
 pub mod bundle;
 pub mod chunk;
+pub mod compact;
 pub mod graph;
 pub mod identity;
 pub mod invalidation;
@@ -16,6 +17,7 @@ pub mod symbols;
 
 pub use bundle::{BundleOptions, BundleOutput, OmissionReason, bundle_chunks};
 pub use chunk::{ChunkOptions, ChunkOutput, chunks_for_tree};
+pub use compact::{CompactError, CompactOptions, compact_files};
 pub use orientation::{build_orientation, OrientationBlock, OrientationField, OrientationStats};
 pub use pagerank::compute_god_nodes;
 pub use graph::{
