@@ -35,6 +35,8 @@ enum Commands {
     Orientation(OrientationArgs),
     /// Detect which chunks changed between two file snapshots
     Invalidate(InvalidateArgs),
+    /// Compact session context by keeping full content for changed chunks and extracting signatures for unchanged chunks
+    Compact(CompactArgs),
 }
 
 #[derive(Args)]
@@ -170,6 +172,29 @@ struct InvalidateArgs {
 }
 
 #[derive(Args)]
+struct CompactArgs {
+    /// Paths to the new (current) files
+    #[arg(index = 1, required = true)]
+    paths: Vec<PathBuf>,
+
+    /// Path to directory containing old file snapshots
+    #[arg(long, required = true)]
+    old: PathBuf,
+
+    /// Output format (sexpr or json)
+    #[arg(long, default_value = "sexpr")]
+    format: String,
+
+    /// Optional token budget for compacted output
+    #[arg(long)]
+    budget: Option<usize>,
+
+    /// Suppress main output
+    #[arg(long, short)]
+    quiet: bool,
+}
+
+#[derive(Args)]
 struct BundleArgs {
     /// Path to the source file
     #[arg(index = 1)]
@@ -223,6 +248,7 @@ fn run() -> Result<()> {
         Commands::Graph(args) => run_graph(args),
         Commands::Orientation(args) => run_orientation(args),
         Commands::Invalidate(args) => run_invalidate(args),
+        Commands::Compact(args) => run_compact(args),
     }
 }
 
@@ -257,6 +283,48 @@ fn run_invalidate(args: InvalidateArgs) -> Result<()> {
             } else if msg.starts_with("parse_error:") {
                 eprintln!("{}", msg);
                 std::process::exit(4);
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
+fn run_compact(args: CompactArgs) -> Result<()> {
+    use tree_sitter_cli::context_compact::{CompactCliOptions, CompactFormat};
+
+    let format = match CompactFormat::from_str(&args.format) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("invalid_format: {}", e);
+            std::process::exit(5);
+        }
+    };
+
+    let opts = CompactCliOptions {
+        paths: args.paths,
+        old_dir: args.old,
+        format,
+        budget: args.budget,
+        quiet: args.quiet,
+    };
+
+    match tree_sitter_cli::context_compact::run_compact(&opts) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.starts_with("file_not_found:") {
+                eprintln!("{}", msg);
+                std::process::exit(2);
+            } else if msg.starts_with("no_language:") {
+                eprintln!("{}", msg);
+                std::process::exit(3);
+            } else if msg.starts_with("parse_error:") {
+                eprintln!("{}", msg);
+                std::process::exit(4);
+            } else if msg.starts_with("budget_exceeded:") {
+                eprintln!("{}", msg);
+                std::process::exit(6);
             } else {
                 Err(e)
             }

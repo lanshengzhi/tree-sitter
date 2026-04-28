@@ -1,6 +1,7 @@
 #![cfg_attr(not(any(test, doctest)), doc = include_str!("../README.md"))]
 
 pub mod context;
+pub mod context_compact;
 pub mod context_graph;
 pub mod context_invalidate;
 pub mod fuzz;
