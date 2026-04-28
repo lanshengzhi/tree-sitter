@@ -28,7 +28,8 @@ pub use graph::diff;
 pub use identity::{StableId, match_chunks};
 pub use invalidation::{invalidate_edits, invalidate_snapshot};
 pub use schema::{
-    ByteRange, ChunkId, ChunkRecord, Confidence, ContextOutput, Diagnostic, DiagnosticCode,
-    DiagnosticLevel, InvalidationOutput, InvalidationReason, InvalidationRecord,
-    InvalidationStatus, MatchStrategy, OutputMeta, SymbolRecord,
+    ByteRange, ChunkId, ChunkRecord, CompactChunkRecord, CompactFileResult, CompactOmittedRecord,
+    CompactOutput, Confidence, ContextOutput, Diagnostic, DiagnosticCode, DiagnosticLevel,
+    InvalidationOutput, InvalidationReason, InvalidationRecord, InvalidationStatus, MatchStrategy,
+    OutputMeta, SymbolRecord,
 };
