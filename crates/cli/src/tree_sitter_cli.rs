@@ -4,6 +4,7 @@ pub mod context;
 pub mod context_compact;
 pub mod context_graph;
 pub mod context_invalidate;
+pub mod context_outline;
 pub mod fuzz;
 pub mod highlight;
 pub mod init;

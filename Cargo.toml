@@ -123,6 +123,7 @@ thiserror = "2.0.18"
 tiny_http = "0.12.0"
 topological-sort = "0.2.2"
 unindent = "0.2.4"
+uuid = { version = "1.16", features = ["v4"] }
 walkdir = "2.5.0"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 wasmparser = "0.244.0"

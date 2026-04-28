@@ -63,6 +63,7 @@ schemars.workspace              = true
 semver.workspace                = true
 serde.workspace                 = true
 serde_json.workspace            = true
+uuid.workspace                  = true
 similar.workspace               = true
 streaming-iterator.workspace    = true
 thiserror.workspace             = true
