@@ -3,16 +3,28 @@
 Never push to `upstream`. Only push branches to `origin`, which must be the
 user's fork. If remote configuration is ambiguous, stop and ask before pushing.
 
-## Nested repositories
+## Repository layout
 
-This repository contains a nested git repository at `pi-mono/` (a full `.git` directory inside the subdirectory, not a git submodule). This is intentional: `pi-mono` is a separate project that is integrated into this tree-sitter branch as a nested checkout.
+`pi-mono` is a separate project and should live as a sibling checkout, not as a
+nested repository inside this tree-sitter fork:
 
-### Rules for nested repo work
+```text
+~/Work/github/
+├── tree-sitter/
+└── pi-mono/
+```
 
-- **Treat `pi-mono/` as a separate git repository.** Run all git commands (status, add, commit, push) from inside `pi-mono/` when working on its files.
-- **Never run `git add -A` or `git add .` from the tree-sitter root** — this would stage pi-mono's `.git` directory or its working files into the parent repo.
-- **Commit tree-sitter and pi-mono changes separately.** The parent repo tracks pi-mono as a plain directory; changes inside it appear as modified content in `git status` but must be committed from within `pi-mono/`.
-- **When pushing branches:** Push the tree-sitter branch from the tree-sitter root, and push the pi-mono branch from `pi-mono/`.
+### Rules for sibling repo work
+
+- **Keep `tree-sitter/` and `pi-mono/` as separate git repositories.** Run git
+  commands from the repo that owns the files you are changing.
+- **Never place `pi-mono/` back under the tree-sitter root** unless the user
+  explicitly asks to convert it into a formal submodule or subtree.
+- **Commit tree-sitter and pi-mono changes separately.** The tree-sitter fork
+  owns the Rust `tree-sitter-context` implementation; pi-mono owns the coding
+  agent integration.
+- **When pushing branches:** Push the tree-sitter branch from `tree-sitter/`,
+  and push the pi-mono branch from `../pi-mono/`.
 - **Pi-mono uses `npm run check` for its pre-commit hook.** If the hook fails on unrelated packages (e.g., `web-ui`), use `--no-verify` only after confirming the failure is pre-existing and unrelated to your changes.
 
 ## Project docs
