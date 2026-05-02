@@ -1,7 +1,7 @@
 # Brainstorm Handoff: AST-Aware Read Tool
 
 **Date:** 2026-04-28  
-**Status:** Complete — Planning finished, ready for implementation  
+**Status:** Implemented — All Phase 1 features merged to `feat/ast-aware-read-tool`  
 **Requirements doc:** [`docs/brainstorms/2026-04-28-ast-aware-read-tool-requirements.md`](docs/brainstorms/2026-04-28-ast-aware-read-tool-requirements.md)  
 **Implementation plan:** [`docs/plans/2026-04-28-002-feat-ast-aware-read-tool-plan.md`](docs/plans/2026-04-28-002-feat-ast-aware-read-tool-plan.md)
 
@@ -9,7 +9,7 @@
 
 ## TL;DR
 
-Replace "read entire files" with "read semantic units." Add three new agent-facing tools (`read_ast_outline`, `read_symbol`, `read_ast_delta`) that wrap existing `tree-sitter-context` CLI capabilities. Keep the existing `read` tool as `read_raw` for fallback. This lets agents navigate code by structure, read only what they need, and refresh only what changed after edits.
+Replaced "read entire files" with "read semantic units." Three new agent-facing tools (`read_ast_outline`, `read_symbol`, `read_ast_delta`) wrap existing `tree-sitter-context` CLI capabilities, with `read_raw` retained for fallback. Agents can now navigate code by structure, read only what they need, and refresh only what changed after edits.
 
 ---
 
@@ -104,12 +104,23 @@ This brainstorm follows the completed **Semantic Session Compaction** feature (`
 - `crates/context/src/bundle.rs` — `bundle_chunks()` for token-budgeted context extraction
 - `crates/cli/src/context_bundle.rs` — `get_context_bundle` extension tool
 - `crates/cli/src/context_invalidate.rs` — `get_invalidated_chunks` extension tool
-- `pi-mono/packages/coding-agent/src/core/tree-sitter-context/` — Bridge and tool registration patterns
+- `../pi-mono/packages/coding-agent/src/core/tree-sitter-context/` — Bridge and tool registration patterns
 
 ---
 
+## Implementation Summary
+
+All 6 implementation units from the plan have been completed:
+
+| Unit | Status | Commit |
+|------|--------|--------|
+| U1 — Extend `ChunkRecord` with `signature_hash` / `body_hash` | ✅ Done | `9fec6151` |
+| U2 — Snapshot disk cache | ✅ Done | `440fcd4a` |
+| U3 — `outline` CLI command | ✅ Done | `795b42d5` |
+| U4 — Enhanced invalidation with change classification | ✅ Done | `dfb883ac` |
+| U5 — Tool integration & schema contract | ✅ Done | `3f804793` |
+| U6 — Integration tests | ✅ Done | (part of above) |
+
 ## Recommended Next Step
 
-→ **`/ce-work`** for implementation.
-
-The implementation plan is complete with 6 units, test scenarios, and key technical decisions documented. Start with U1 (extend ChunkRecord schema) or U2 (snapshot cache) in parallel if desired.
+→ Review and merge `feat/ast-aware-read-tool` to `rfc-tree-sitter-context`, or proceed to **Phase 2+** features (callers/references analysis, cross-file dependency graph, multi-session snapshot persistence).
